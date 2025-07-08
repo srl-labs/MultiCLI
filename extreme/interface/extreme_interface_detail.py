@@ -56,7 +56,6 @@ class InterfaceDetails(object):
             if not mac or not isinstance(mac, str):
                 raise ValueError("Invalid MAC address provided")
 
-            print(mac)
             mac = mac.replace(":", "").replace("-", "").lower()
 
             if len(mac) != 12:
@@ -123,12 +122,10 @@ class InterfaceDetails(object):
                 line_protocol_status = "up" if oper_status == "up" else "down"
             else:
                 line_protocol_status = "down"
-            line_protocol_status = line_protocol_status
             if oper_status == "up":
                 connection_status = "connected"
             else:
                 connection_status = "notconnected"
-            connection_status = connection_status
             # hardware = intf.hardware
             raw_mac_address = intf.ethernet.get().hw_mac_address
             mac_address = self.convert_mac(raw_mac_address)
@@ -150,26 +147,20 @@ class InterfaceDetails(object):
             except:
                 duplex = "Full"
             port_speed = intf.ethernet.get().port_speed
-            auto_negotiation = "on"
-            uni_link = "disabled"
             #calculating the uptime
             if oper_status == "up":
                 uptime = self._build_last_change_string(intf.last_change)
             else:
                 uptime = "00"
-            loopback_mode = intf.loopback_mode
-            link_changes = intf.statistics.get().carrier_transitions
             input_packets = intf.statistics.get().in_packets
             input_bytes = intf.statistics.get().in_octets
             received_broadcasts = intf.statistics.get().in_broadcast_packets
             received_multicast = intf.statistics.get().in_multicast_packets
-            giants = intf.ethernet.get().statistics.get().in_oversize_frames
             input_errors = intf.statistics.get().in_error_packets
             crc_errors = intf.ethernet.get().statistics.get().in_crc_error_frames
             #alignment_errors = intf.statistics.get().in_alignment_error_frames
             #symbol_errors = intf.statistics.get().in_symbol_error_frames
             input_discards = intf.statistics.get().in_discarded_packets
-            pause_input = intf.ethernet.get().statistics.get().in_mac_pause_frames
             output_packets = intf.statistics.get().out_packets
             output_bytes = intf.statistics.get().out_octets
             sent_broadcasts = intf.statistics.get().out_broadcast_packets
@@ -179,7 +170,6 @@ class InterfaceDetails(object):
             #late_collisions = intf.statistics.get().out_late_collision_packets
             #deferred = intf.statistics.get().out_deferred_packets
             output_discards = intf.statistics.get().out_discarded_packets
-            pause_output = getattr(getattr(getattr(intf.ethernet.get(), 'statistics', None), 'get', lambda: None)(), 'out_mac_pause_frames', None) or 0
             input_rate_bps = intf.traffic_rate.get().in_bps
             output_rate_bps = intf.traffic_rate.get().out_bps
             input_utilization = self.calculate_utilization(input_rate_bps, port_speed)
@@ -196,7 +186,14 @@ class InterfaceDetails(object):
             input_64b_frames = intf.ethernet.get().statistics.get().in_64b_frames
             input_jabber_frames = intf.ethernet.get().statistics.get().in_jabber_frames
             ifindex = intf.ifindex
+            # last_change is used to calculate uptime in _timedelta_str method
             last_change = intf.last_change
+            # Variables set to N/A as they don't have equivalents in SR Linux
+            input_packets_rate = "N/A"
+            output_packets_rate = "N/A"
+            overruns = "N/A"
+            runts = "N/A"
+            underruns = "N/A"
             
 
             template_string = """
@@ -260,7 +257,7 @@ Time since last interface status change: {{ uptime }}"""
             "input_jabber_frames": input_jabber_frames,
             "input_oversized_frames": input_oversized_frames,
             "input_packets": input_packets,
-            "input_packets_rate": "N/A",
+            "input_packets_rate": input_packets_rate,
             "input_rate_mbps": input_rate_mbps,
             "input_utilization": input_utilization,
             "interface_name": interface_name,
@@ -273,17 +270,17 @@ Time since last interface status change: {{ uptime }}"""
             "output_discards": output_discards,
             "output_errors": output_errors,
             "output_packets": output_packets,
-            "output_packets_rate": "N/A",
+            "output_packets_rate": output_packets_rate,
             "output_rate_mbps": output_rate_mbps,
             "output_utilization": output_utilization,
-            "overruns": "N/A",
+            "overruns": overruns,
             "received_broadcasts": received_broadcasts,
             "received_multicast": received_multicast,
-            "runts": "N/A",
+            "runts": runts,
             "sent_broadcasts": sent_broadcasts,
             "sent_multicast": sent_multicast,
             "speed": port_speed,
-            "underruns": "N/A",
+            "underruns": underruns,
             "uptime": uptime,
             }
 
