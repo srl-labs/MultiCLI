@@ -180,10 +180,13 @@ class InterfaceDetails(object):
             #deferred = intf.statistics.get().out_deferred_packets
             output_discards = intf.statistics.get().out_discarded_packets
             pause_output = getattr(getattr(getattr(intf.ethernet.get(), 'statistics', None), 'get', lambda: None)(), 'out_mac_pause_frames', None) or 0
-            input_packets_rate = intf.traffic_rate.get().in_bps
-            output_packets_rate = intf.traffic_rate.get().out_bps
-            input_utilization = self.calculate_utilization(input_packets_rate, port_speed)
-            output_utilization = self.calculate_utilization(output_packets_rate, port_speed)
+            input_rate_bps = intf.traffic_rate.get().in_bps
+            output_rate_bps = intf.traffic_rate.get().out_bps
+            input_utilization = self.calculate_utilization(input_rate_bps, port_speed)
+            output_utilization = self.calculate_utilization(output_rate_bps, port_speed)
+            # Convert bps to Mbps for display
+            input_rate_mbps = input_rate_bps / 1_000_000
+            output_rate_mbps = output_rate_bps / 1_000_000
             input_65b_to_127b_frames = intf.ethernet.get().statistics.get().in_65b_to_127b_frames
             input_128b_to_255b_frames = intf.ethernet.get().statistics.get().in_128b_to_255b_frames
             input_256b_to_511b_frames = intf.ethernet.get().statistics.get().in_256b_to_511b_frames
@@ -229,8 +232,8 @@ Transmit Statistics:
     Underruns: {{ underruns }}
     Errors: {{ output_errors }}, Discards: {{ output_discards }}
 Rate info:
-    Input {{ input_rate }} Mbits/sec,  {{ input_packets_rate }} packets/sec, TODO:0.01% of line-rate
-    Output {{ output_rate }} Mbits/sec, {{ output_packets_rate }} packets/sec, TODO:0.00% of line-rate
+    Input {{ input_rate_mbps }} Mbits/sec,  {{ input_packets_rate }} packets/sec, {{ "%.2f"|format(input_utilization) }}% of line-rate
+    Output {{ output_rate_mbps }} Mbits/sec, {{ output_packets_rate }} packets/sec, {{ "%.2f"|format(output_utilization) }}% of line-rate
 Route-Only Packets Dropped: TODO:0
 FEC:
     Mode: TODO:Disabled
@@ -239,62 +242,49 @@ Time since last interface status change: {{ uptime }}"""
 
 
             data = {
-            "interface_name": interface_name,
-            "oper_status": oper_status,
-            "line_protocol_status": oper_status,
-            "connection_status": connection_status,
-            "hardware": "Ethernet",
-            "mac_address": mac_address,
             "bia_address": bia_address,
-            "mtu": mtu,
-            "bandwidth": bandwidth,
-            "duplex": duplex,
-            "speed": port_speed,
-            "auto_negotiation": auto_negotiation,
-            "uni_link": uni_link,
-            "uptime": uptime,
-            "loopback_mode": loopback_mode,
-            "link_changes": link_changes,
-            "last_clearing": uptime,
-            "input_rate": input_packets_rate,
-            "input_utilization": input_utilization,
-            "input_packets_rate": input_packets_rate,
-            "output_rate": output_packets_rate,
-            "output_utilization": output_utilization,
-            "output_packets_rate": output_packets_rate,
-            "input_packets": input_packets,
-            "input_bytes": input_bytes,
-            "received_broadcasts": received_broadcasts,
-            "received_multicast": received_multicast,
-            "runts": "N/A",
-            "giants": giants,
-            "input_errors": input_errors,
+            "connection_status": connection_status,
             "crc_errors": crc_errors,
-            "alignment_errors": 0,
-            "symbol_errors": 0,
-            "input_discards": input_discards,
-            "pause_input": pause_input,
-            "output_packets": output_packets,
-            "output_bytes": output_bytes,
-            "sent_broadcasts": sent_broadcasts,
-            "sent_multicast": sent_multicast,
-            "output_errors": output_errors,
-            "collisions": 0,
-            "late_collisions": 0,
-            "deferred": 0,
-            "output_discards": output_discards,
-            "pause_output": pause_output,
-            "input_64b_frames":  input_64b_frames,
-            "input_65b_to_127b_frames": input_65b_to_127b_frames,
+            "duplex": duplex,
+            "hardware": "Ethernet",
+            "ifindex": ifindex,
+            "input_1024b_to_1518b_frames": input_1024b_to_1518b_frames,
             "input_128b_to_255b_frames": input_128b_to_255b_frames,
             "input_256b_to_511b_frames": input_256b_to_511b_frames,
             "input_512b_to_1023b_frames": input_512b_to_1023b_frames,
-            "input_1024b_to_1518b_frames": input_1024b_to_1518b_frames,
-            "input_oversized_frames": input_oversized_frames,
+            "input_64b_frames": input_64b_frames,
+            "input_65b_to_127b_frames": input_65b_to_127b_frames,
+            "input_bytes": input_bytes,
+            "input_discards": input_discards,
+            "input_errors": input_errors,
             "input_jabber_frames": input_jabber_frames,
-            "ifindex": ifindex,
+            "input_oversized_frames": input_oversized_frames,
+            "input_packets": input_packets,
+            "input_packets_rate": "N/A",
+            "input_rate_mbps": input_rate_mbps,
+            "input_utilization": input_utilization,
+            "interface_name": interface_name,
+            "last_clearing": uptime,
+            "line_protocol_status": oper_status,
+            "mac_address": mac_address,
+            "mtu": mtu,
+            "oper_status": oper_status,
+            "output_bytes": output_bytes,
+            "output_discards": output_discards,
+            "output_errors": output_errors,
+            "output_packets": output_packets,
+            "output_packets_rate": "N/A",
+            "output_rate_mbps": output_rate_mbps,
+            "output_utilization": output_utilization,
             "overruns": "N/A",
+            "received_broadcasts": received_broadcasts,
+            "received_multicast": received_multicast,
+            "runts": "N/A",
+            "sent_broadcasts": sent_broadcasts,
+            "sent_multicast": sent_multicast,
+            "speed": port_speed,
             "underruns": "N/A",
+            "uptime": uptime,
             }
 
             template = Template(template_string)
