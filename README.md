@@ -43,6 +43,7 @@ In this initial release, we have scripts for:
 - [Cisco NX-OS](cisco-nx/)
 - [Juniper JUNOS](juniper/)
 - [Nokia SR OS](nokia/)
+- [Extreme Networks](extreme/)
 
 ## Learn how to customize SR Linux CLI
 
@@ -64,17 +65,18 @@ To test these scripts:
 - Clone this repo to your host or use codespaces
 - Deploy the EVPN lab or MPLS lab (coming soon)
 - All custom CLI plugin files are bound to the nodes using the `bind` function in the topology file
-- Each node is configured with 4 custom users:
+- Each node is configured with 5 custom users:
 
 | User | Password | NOS |
 |------|----------|-----|
 | auser | auser | Arista EOS commands |
 | cnxuser | cnxuser | Cisco NX-OS commands |
+| exuser | exuser | Extreme Networks commands |
 | juser | juser | Juniper JUNOS commands |
 | nokuser | nokuser | Nokia SR OS commands |
 
 - Each of the above user's directory is loaded with the custom cli plugin files for that NOS.
-- Login to any leaf or spine node using any of the 4 usernames to try these commands.
+- Login to any leaf or spine node using any of the 5 usernames to try these commands.
 
 For example, to try NX-OS plugins, login to any leaf or spine nodes using `cnxuser/cnxuser` and try the supported NX-OS commands.
 

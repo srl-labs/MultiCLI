@@ -18,6 +18,7 @@ topology:
         - juniper:/home/juser/cli
         - cisco-nx:/home/cnxuser/cli
         - nokia:/home/nokuser/cli
+        - extreme:/home/exuser/cli
     linux:
       image: ghcr.io/srl-labs/network-multitool
   nodes:
