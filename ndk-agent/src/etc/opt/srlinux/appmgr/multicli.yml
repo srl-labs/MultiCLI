@@ -1,0 +1,19 @@
+multicli:
+    path: /etc/opt/srlinux/appmgr/multicli/
+    launch-command: /etc/opt/srlinux/appmgr/multicli/multicli.sh
+    search-command:
+        /bin/bash /etc/opt/srlinux/appmgr/multicli/multicli.sh
+    wait-for-config: No
+    failure-threshold: 10
+    failure-action: wait=forever
+    run-as-user: root
+    restricted-operations: ['kill','quit','restart','reload']
+    config-delivery-format: json
+    author: 'Nokia'
+    version-command:
+        /etc/opt/srlinux/appmgr/multicli/multicli_version.sh
+    yang-modules:
+        names:
+            - "multicli"
+        source-directories:
+            - "/etc/opt/srlinux/appmgr/multicli/yang/"

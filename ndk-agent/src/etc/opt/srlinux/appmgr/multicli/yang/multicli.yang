@@ -1,0 +1,52 @@
+module multicli {
+
+    yang-version 1.1;
+    namespace "urn:srl_multicli/multicli";
+
+    prefix "multicli";
+
+    revision 2026-09-08 {
+        description "MultiCLI v0.2.0 release with multi-vendor support";
+    }
+
+    revision 2026-04-01 {
+        description "First release";
+    }
+
+    typedef nos {
+        type enumeration {
+            enum none;
+            enum nokia-sros;
+            enum juniper;
+            enum arista;
+            enum cisco;
+            enum all;
+        }
+        description "Network Operating Systems supported in the MultiCLI Project";
+    }
+
+    container multicli {
+        presence "Top-level container for the MultiCLI App";
+        description "Top level enclosing container for MultiCLI app config and operational state data";
+
+        leaf enabled-nos {
+            type nos;
+            default "none";
+            description "Network Operating System Enabled for show commands included in MultiCLI Project";
+        }
+
+        leaf repo-url {
+            type string {
+                pattern 'https?://.+\.zip';
+            }
+            default "https://github.com/srl-labs/multicli/archive/refs/heads/main.zip";
+            description "Repo URL - ZIP File";
+        }
+
+        leaf error-messages {
+            type string;
+            config false;
+            description "Error messages";
+        }
+    }
+}
