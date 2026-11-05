@@ -4,6 +4,7 @@ import sys
 from srlinux.location import build_path
 from srlinux.mgmt.cli import CliPlugin, KeyCompleter
 from srlinux.mgmt.cli.execute_error import ExecuteError
+from srlinux.schema.data_store import DataStore
 from srlinux.syntax import Syntax
 
 # Try potential base directories
@@ -112,7 +113,7 @@ class Plugin(CliPlugin):
         if '*' in nw_name:
             return
         path = build_path('/network-instance[name={name}]/type', name=nw_name)
-        server_data = state.server_data_store.get_data(path, recursive=False)
+        server_data = state.server.get_data_store(DataStore.State).get_data(path, recursive=False)
         for nw in server_data.network_instance.items():
-            if nw.type != 'mac-vrf':
-                raise ExecuteError('service command available for mac-vrf only')
+            if not any(t in str(nw.type) for t in ('mac-vrf', 'ip-vrf')):
+                raise ExecuteError('service command available for mac-vrf and ip-vrf only')

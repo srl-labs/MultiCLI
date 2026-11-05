@@ -1,6 +1,7 @@
 from srlinux.syntax import Syntax
 from srlinux.location import build_path
 from srlinux.mgmt.cli import KeyCompleter
+from srlinux.schema.data_store import DataStore
 import datetime
 
 class IpBgpReport:
@@ -45,11 +46,11 @@ class IpBgpReport:
                 return
                 
             # Print header and neighbor data
-            self._print_bgp_header(bgp_data, network_instance)
+            self._print_bgp_header(output, bgp_data, network_instance)
             neighbors = self._get_neighbor_data(bgp_data)
             
             if neighbors:
-                self._print_neighbor_table(neighbors)
+                self._print_neighbor_table(output, neighbors)
             else:
                 # No neighbors - exit silently
                 pass
@@ -71,11 +72,11 @@ class IpBgpReport:
                 return
                 
             # Print header and neighbor data
-            self._print_bgp_rt_header(bgp_data, network_instance)
+            self._print_bgp_rt_header(output, bgp_data, network_instance)
             rt1_data = self._getRibRoute1(state, network_instance, esi_value)
             rt1_routes = self._get_rt1_data(state, network_instance, rt1_data)
             if rt1_routes:
-                self._print_rt_table(rt1_routes)
+                self._print_rt_table(output, rt1_routes)
             else:
                 # No neighbors - exit silently
                 pass
@@ -97,11 +98,11 @@ class IpBgpReport:
                 return
                 
             # Print header and neighbor data
-            self._print_bgp_rt_header(bgp_data, network_instance)
+            self._print_bgp_rt_header(output, bgp_data, network_instance)
             rt2_data = self._getRibRoute2(state, network_instance, mac_value)
             rt2_routes = self._get_rt2_data(state, network_instance, rt2_data)
             if rt2_routes:
-                self._print_rt_table(rt2_routes)
+                self._print_rt_table(output, rt2_routes)
             else:
                 # No neighbors - exit silently
                 pass
@@ -123,11 +124,11 @@ class IpBgpReport:
                 return
                 
             # Print header and neighbor data
-            self._print_bgp_rt_header(bgp_data, network_instance)
+            self._print_bgp_rt_header(output, bgp_data, network_instance)
             rt3_data = self._getRibRoute3(state, network_instance, originr_value)
             rt3_routes = self._get_rt3_data(state, network_instance, rt3_data)
             if rt3_routes:
-                self._print_rt_table(rt3_routes)
+                self._print_rt_table(output, rt3_routes)
             else:
                 # No neighbors - exit silently
                 pass
@@ -149,11 +150,11 @@ class IpBgpReport:
                 return
                 
             # Print header and neighbor data
-            self._print_bgp_rt_header(bgp_data, network_instance)
+            self._print_bgp_rt_header(output, bgp_data, network_instance)
             rt4_data = self._getRibRoute4(state, network_instance, esi4_value)
             rt4_routes = self._get_rt4_data(state, network_instance, rt4_data)
             if rt4_routes:
-                self._print_rt_table(rt4_routes)
+                self._print_rt_table(output, rt4_routes)
             else:
                 # No neighbors - exit silently
                 pass
@@ -175,11 +176,11 @@ class IpBgpReport:
                 return
                 
             # Print header and neighbor data
-            self._print_bgp_rt_header(bgp_data, network_instance)
+            self._print_bgp_rt_header(output, bgp_data, network_instance)
             rt5_data = self._getRibRoute5(state, network_instance, ip_value)
             rt5_routes = self._get_rt5_data(state, network_instance, rt5_data)
             if rt5_routes:
-                self._print_rt_table(rt5_routes)
+                self._print_rt_table(output, rt5_routes)
             else:
                 # No neighbors - exit silently
                 pass
@@ -195,7 +196,7 @@ class IpBgpReport:
             path = build_path(self.PATH_TEMPLATES['bgp_instance'].format(
                 network_instance=network_instance
             ))
-            return state.server_data_store.get_data(path, recursive=True)
+            return state.server.get_data_store(DataStore.State).get_data(path, recursive=True)
         except Exception:
             # Silently handle error
             return None
@@ -218,7 +219,7 @@ class IpBgpReport:
                     etag='*',
                     neigh='*'
                 )
-        return state.server_data_store.get_data(path_1, recursive=True)
+        return state.server.get_data_store(DataStore.State).get_data(path_1, recursive=True)
 
     def _getRibRoute2(self, state, netinst, mac_value):
         if state.system_features.bgp_rib_afi_safi_list_for_evpn:
@@ -239,7 +240,7 @@ class IpBgpReport:
                     etag='*',
                     neigh='*'
                 )
-        return state.server_data_store.get_data(path_2, recursive=True)
+        return state.server.get_data_store(DataStore.State).get_data(path_2, recursive=True)
 
     def _getRibRoute3(self, state, netinst, originr_value):
         if state.system_features.bgp_rib_afi_safi_list_for_evpn:
@@ -258,7 +259,7 @@ class IpBgpReport:
                     etag='*',
                     neigh='*'
                 )
-        return state.server_data_store.get_data(path_3, recursive=True)
+        return state.server.get_data_store(DataStore.State).get_data(path_3, recursive=True)
 
     def _getRibRoute4(self, state, netinst, esi4_value):
         if state.system_features.bgp_rib_afi_safi_list_for_evpn:
@@ -277,7 +278,7 @@ class IpBgpReport:
                     orouter='*',
                     neigh='*'
                 )
-        return state.server_data_store.get_data(path_4, recursive=True)
+        return state.server.get_data_store(DataStore.State).get_data(path_4, recursive=True)
 
     def _getRibRoute5(self, state, netinst, ip_value):
         if state.system_features.bgp_rib_afi_safi_list_for_evpn:
@@ -296,7 +297,7 @@ class IpBgpReport:
                 prefix = ip_value,
                 neigh='*'
                 )
-        return state.server_data_store.get_data(path_5, recursive=True)
+        return state.server.get_data_store(DataStore.State).get_data(path_5, recursive=True)
 
     def _has_bgp_config(self, bgp_data):
         """Check if BGP is configured"""
@@ -316,7 +317,7 @@ class IpBgpReport:
         except (AttributeError, Exception):
             return False
 
-    def _print_bgp_header(self, bgp_data, network_instance):
+    def _print_bgp_header(self, output, bgp_data, network_instance):
         """Print BGP header information"""
         router_id = "0.0.0.0"
         local_as = "N/A"
@@ -331,14 +332,14 @@ class IpBgpReport:
         except (AttributeError, Exception):
             pass
             
-        print(f"BGP summary information for VRF {network_instance}")
-        print(f"Router identifier {router_id}, local AS number {local_as}")
-        print("Neighbor Status Codes: m – Under maintenance")
+        output.print_line(f"BGP summary information for VRF {network_instance}")
+        output.print_line(f"Router identifier {router_id}, local AS number {local_as}")
+        output.print_line("Neighbor Status Codes: m – Under maintenance")
         
         # Print column headers
-        print("  Neighbor        V    AS     MsgRcvd   MsgSent   InQ    OutQ   Up/Down   State     PfxRcd    PfxAcc")
+        output.print_line("  Neighbor        V    AS     MsgRcvd   MsgSent   InQ    OutQ   Up/Down   State     PfxRcd    PfxAcc")
 
-    def _print_bgp_rt_header(self, bgp_data, network_instance):
+    def _print_bgp_rt_header(self, output, bgp_data, network_instance):
         """Print BGP header information"""
         router_id = "0.0.0.0"
         local_as = "N/A"
@@ -352,16 +353,16 @@ class IpBgpReport:
         except (AttributeError, Exception):
             pass
             
-        print(f"BGP routing table information for VRF {network_instance}")
-        print(f"Router identifier {router_id}, local AS number {local_as}")
-        print("Route status codes: s - suppressed, * - valid, > - active, # - not installed, E - ECMP head, e - ECMP")
-        print("                    S - Stale, c - Contributing to ECMP, b - backup")
-        print("                    % - Pending BGP convergence")
-        print("Origin codes: i - IGP, e - EGP, ? - incomplete")
-        print("AS Path Attributes: Or-ID - Originator ID, C-LST - Cluster List, LL Nexthop - Link Local Nexthop")
+        output.print_line(f"BGP routing table information for VRF {network_instance}")
+        output.print_line(f"Router identifier {router_id}, local AS number {local_as}")
+        output.print_line("Route status codes: s - suppressed, * - valid, > - active, # - not installed, E - ECMP head, e - ECMP")
+        output.print_line("                    S - Stale, c - Contributing to ECMP, b - backup")
+        output.print_line("                    % - Pending BGP convergence")
+        output.print_line("Origin codes: i - IGP, e - EGP, ? - incomplete")
+        output.print_line("AS Path Attributes: Or-ID - Originator ID, C-LST - Cluster List, LL Nexthop - Link Local Nexthop")
         
         # Print column headers
-        print("         Network             Next Hop         Metric  LocPref Weight Path")
+        output.print_line("         Network             Next Hop         Metric  LocPref Weight Path")
 
     def _get_neighbor_data(self, bgp_data):
         """Get BGP neighbor data"""
@@ -397,18 +398,20 @@ class IpBgpReport:
                             # Get message statistics
                             messages_received = 0
                             messages_sent = 0
+                            received_queue = 0
+                            sent_queue = 0
                 
                             if hasattr(neighbor, 'received_messages'):
                                 rm = neighbor.received_messages.get()
                                 if rm and hasattr(rm, 'total_messages'):
-                                    messages_received = rm.total_messages
-                                    received_queue = rm.queue_depth
+                                    messages_received = getattr(rm, 'total_messages', 0) or 0
+                                    received_queue = getattr(rm, 'queue_depth', 0) or 0
                         
                             if hasattr(neighbor, 'sent_messages'):
                                 sm = neighbor.sent_messages.get()
                                 if sm and hasattr(sm, 'total_messages'):
-                                    messages_sent = sm.total_messages
-                                    sent_queue = sm.queue_depth
+                                    messages_sent = getattr(sm, 'total_messages', 0) or 0
+                                    sent_queue = getattr(sm, 'queue_depth', 0) or 0
                             # Get prefix information
                             prefixes_received = 0
                             prefixes_accepted = 0                                       
@@ -476,7 +479,7 @@ class IpBgpReport:
             if state.system_features.bgp_rib_afi_safi_list_for_evpn:
                 rttable = evpn_rib_in_post.mac_ip_route
             else:
-                rttable = evpn_rib_in_post.mac_ip_route
+                rttable = evpn_rib_in_post.mac_ip_routes
             rt_type = '2'
             for route in rttable.items():
                 status = self._set_status_code(route)
@@ -499,7 +502,7 @@ class IpBgpReport:
             if state.system_features.bgp_rib_afi_safi_list_for_evpn:
                 rttable = evpn_rib_in_post.imet_route
             else:
-                rttable = evpn_rib_in_post.imet_route
+                rttable = evpn_rib_in_post.imet_routes
             rt_type = '3'
             for route in rttable.items():
                 status = self._set_status_code(route)
@@ -522,7 +525,7 @@ class IpBgpReport:
             if state.system_features.bgp_rib_afi_safi_list_for_evpn:
                 rttable = evpn_rib_in_post.ethernet_segment_route
             else:
-                rttable = evpn_rib_in_post.ethernet_segment_route
+                rttable = evpn_rib_in_post.ethernet_segment_routes
             rt_type = '4'
             for route in rttable.items():
                 status = self._set_status_code(route)
@@ -545,7 +548,7 @@ class IpBgpReport:
             if state.system_features.bgp_rib_afi_safi_list_for_evpn:
                 rttable = evpn_rib_in_post.ip_prefix_route
             else:
-                rttable = evpn_rib_in_post.ip_prefix_route
+                rttable = evpn_rib_in_post.ip_prefix_routes
             rt_type = '5'
             for route in rttable.items():
                 status = self._set_status_code(route)
@@ -569,23 +572,29 @@ class IpBgpReport:
         }
 
     def _populate_route_attrs(self, state, route_entry, netinst_name, attr_id, route_type='*'):
-        if not attr_id in self._attrSets_dict:
+        cache_key = (netinst_name, attr_id)
+        if cache_key not in self._attrSets_dict:
             path_attr = build_path('/network-instance[name={vrf}]/bgp-rib/attr-sets/attr-set[index={atr}]',
                               vrf=netinst_name, atr=str(attr_id))
-            attrSets = state.server_data_store.get_data(path_attr, recursive=True, include_container_children=True)
-            self._attrSets_dict[attr_id] = attrSets
+            attrSets = state.server.get_data_store(DataStore.State).get_data(path_attr, recursive=True, include_container_children=True)
+            self._attrSets_dict[cache_key] = attrSets
         else:
-            attrSets = self._attrSets_dict[attr_id]
+            attrSets = self._attrSets_dict[cache_key]
         for attr in attrSets.get_descendants('/network-instance/bgp-rib/attr-sets/attr-set'):
-            route_entry['nexthop_info'] = attr.next_hop
-            route_entry['locpref_info'] = attr.local_pref
-            as_path = attr.as_path.get().segment.get().member
-            if attr.origin == 'igp':
-                route_entry['path_info'] = ' '.join(map(str,as_path)) + ' i'
-            elif attr.origin == 'egp':
-                route_entry['path_info'] = ' '.join(map(str,as_path)) + ' e'
-            elif attr.origin == 'incomplete':
-                route_entry['path_info'] = '?'
+            route_entry['nexthop_info'] = getattr(attr, 'next_hop', '') or ''
+            route_entry['locpref_info'] = getattr(attr, 'local_pref', '') or ''
+            try:
+                as_path = attr.as_path.get().segment.get().member or []
+            except Exception:
+                as_path = []
+            as_str = (' '.join(map(str, as_path)) + ' ') if as_path else ''
+            origin = getattr(attr, 'origin', '')
+            if origin == 'igp':
+                route_entry['path_info'] = as_str + 'i'
+            elif origin == 'egp':
+                route_entry['path_info'] = as_str + 'e'
+            elif origin == 'incomplete':
+                route_entry['path_info'] = as_str + '?'
             if hasattr(attr, 'med') and attr.med:
                 route_entry['metric_info'] = attr.med
             else:
@@ -607,7 +616,7 @@ class IpBgpReport:
             status += ">"
         return status or '-'
 
-    def _print_neighbor_table(self, neighbors):
+    def _print_neighbor_table(self, output, neighbors):
         """Print formatted neighbor table"""
         for neighbor in sorted(neighbors, key=lambda x: str(x.get('peer_address', ''))):
             # Show the correct format based on BGP state
@@ -618,11 +627,11 @@ class IpBgpReport:
             else:
                 state_display = neighbor.get('state', 'Idle')
             
-            print(f"  {neighbor['peer_address']:<15} 4    {neighbor['peer_as']:<6} "
-                  f"{neighbor['msg_rcvd']:<9} {neighbor['msg_sent']:<9} "
-                  f"{neighbor['rx_queue']:<6} {neighbor['tx_queue']:<6} "
-                  f"{neighbor['up_time']:<9} {neighbor['state']:<9} " 
-                  f"{neighbor['pfx_received']:<9} {neighbor['pfx_accepted']:<9}")
+            output.print_line(f"  {neighbor['peer_address']:<15} 4    {neighbor['peer_as']:<6} "
+                              f"{neighbor['msg_rcvd']:<9} {neighbor['msg_sent']:<9} "
+                              f"{neighbor['rx_queue']:<6} {neighbor['tx_queue']:<6} "
+                              f"{neighbor['up_time']:<9} {neighbor['state']:<9} " 
+                              f"{neighbor['pfx_received']:<9} {neighbor['pfx_accepted']:<9}")
 
     def _format_uptime(self, neighbor):
         """Format uptime for display with safer parsing"""
@@ -669,10 +678,10 @@ class IpBgpReport:
             # Fall back to "never" if there's any parsing error
             return "never"
 
-    def _print_rt_table(self, rt_entries):
+    def _print_rt_table(self, output, rt_entries):
         """Print formatted route type table"""
         for rt_entry in rt_entries:    
-            print(f" {rt_entry['status_info']:<7} {rt_entry['network_info']:<50}\n "
-                  f"                            {rt_entry['nexthop_info']:<16} {rt_entry['metric_info']:<7} "
-                  f"{rt_entry['locpref_info']:<7} {rt_entry['weight_info']:<6} "
-                  f"{rt_entry['path_info']:<20} ")
+            output.print_line(f" {rt_entry['status_info']:<7} {rt_entry['network_info']:<50}\n "
+                              f"                            {rt_entry['nexthop_info']:<16} {rt_entry['metric_info']:<7} "
+                              f"{rt_entry['locpref_info']:<7} {rt_entry['weight_info']:<6} "
+                              f"{rt_entry['path_info']:<20} ")

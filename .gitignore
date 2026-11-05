@@ -1,0 +1,29 @@
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Containerlab runtime artifacts
+clab-*/
+.clab.yml.bak
+*.clab.yml.bak
+
+# Debian packaging staging directory
+ndk-agent/build/
+
+# Editors & OS metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
