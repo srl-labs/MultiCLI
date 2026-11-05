@@ -17,6 +17,7 @@ from srlinux.mgmt.cli.cli_loader import CliLoader
 from srlinux.mgmt.cli.cli_output import CliOutput
 from srlinux.mgmt.cli.cli_state import CliState
 from srlinux.schema import FixedSchemaRoot
+from srlinux.schema.data_store import DataStore
 from srlinux.data.utilities import Percentage, print_line, Width
 import itertools
 from srlinux import strings
@@ -25,6 +26,46 @@ import re
 
 #logger = logging.getLogger(__name__)
 #logger.level = logging.DEBUG
+
+def _junos_to_srl_intf(name):
+    """Translate Juniper JUNOS interface naming to SR Linux naming."""
+    if not name or name == "*":
+        return name
+    raw = str(name).strip()
+    sub = ""
+    if "." in raw:
+        base, sub_part = raw.split(".", 1)
+        sub = f".{sub_part}"
+    else:
+        base = raw
+    low = base.lower()
+    m = re.match(r'^(?:et|xe|ge)-(\d+)/(\d+)/(\d+)(?::(\d+))?$', low)
+    if m:
+        fpc, pic, port, ch = m.group(1), m.group(2), m.group(3), m.group(4)
+        if pic == "0":
+            slot = int(fpc) + 1
+            port_num = int(port) + 1
+            chan_num = int(ch) + 1 if ch is not None else None
+        else:
+            slot = int(fpc)
+            port_num = int(port) if int(port) > 0 else 1
+            chan_num = (int(ch) if int(ch) > 0 else 1) if ch is not None else None
+        if chan_num is not None:
+            return f"ethernet-{slot}/{port_num}/{chan_num}{sub}"
+        return f"ethernet-{slot}/{port_num}{sub}"
+    m = re.match(r'^ae(\d+)$', low)
+    if m:
+        return f"lag{m.group(1)}{sub}"
+    m = re.match(r'^lo(\d+)$', low)
+    if m:
+        return f"system0{sub}" if m.group(1) == "0" else f"lo{m.group(1)}{sub}"
+    m = re.match(r'^(?:fxp|em|me)(\d+)$', low)
+    if m:
+        return f"mgmt0{sub}"
+    if low == "irb":
+        return f"irb0{sub}"
+    return raw
+
 
 class EthernetSwitchingReport:
     '''
@@ -58,16 +99,26 @@ class EthernetSwitchingReport:
                               'Active Source'])
         return root
 
+    def _get_arg(self, node_name, arg_name, default=None):
+        for src in (self._arguments, getattr(self._state, 'line_commands', None)):
+            if src is None:
+                continue
+            try:
+                if src.has_node(node_name):
+                    val = src.get_value_or(node_name, arg_name, default)
+                    if val is not None and val != default:
+                        return str(val)
+            except Exception:
+                pass
+        return default
+
     def _show_table_instance(self, state: CliState, output, arguments: CommandNodeWithArguments, **kwargs,):
         """Main display function"""
         self._state = state
         self._arguments = arguments
-        if arguments.has_node('instance'):
-            netinst_data = self._fetch_state_network(arguments.get('instance','name'))
-        elif arguments.has_node('interface'):
-            netinst_data = self._fetch_state_network('*')
-        elif arguments.has_node('vlan'):
-            netinst_data = self._fetch_state_network('*')
+        inst_name = self._get_arg('instance', 'name', None)
+        if inst_name:
+            netinst_data = self._fetch_state_network(inst_name)
         else:
             netinst_data = self._fetch_state_network('*')
 
@@ -75,7 +126,7 @@ class EthernetSwitchingReport:
         self._set_all_formatters(data_root)
         with output.stream_data(data_root):
             self._populate_mac_table(netinst_data, data_root)
-        output.print(srlinux_suggested_command)
+        output.print_line(srlinux_suggested_command)
         data_root.synchronizer.flush_children(data_root)
 
     def _fetch_state_network(self, netinst_name):
@@ -83,14 +134,14 @@ class EthernetSwitchingReport:
             '/network-instance[name={name}]',
             name=netinst_name
         )
-        return self._state.server_data_store.get_data(table_path, recursive=False)
+        return self._state.server.get_data_store(DataStore.State).get_data(table_path, recursive=False)
 
     def _fetch_state_network_interfaces(self, netinst_name):
         table_path = build_path(
             '/network-instance[name={name}]/interface[name=*]',
             name=netinst_name
         )
-        return self._state.server_data_store.get_data(table_path, recursive=False, include_container_children=True)
+        return self._state.server.get_data_store(DataStore.State).get_data(table_path, recursive=False, include_container_children=True)
 
     def _fetch_state_mac_table(self, netinst_name, mac_address=None):
         table_path = build_path(
@@ -98,14 +149,14 @@ class EthernetSwitchingReport:
             name=netinst_name,
             mac=mac_address or '*'
         )
-        return self._state.server_data_store.stream_data(table_path, recursive=True)
+        return self._state.server.get_data_store(DataStore.State).stream_data(table_path, recursive=True)
 
     def _fetch_state_mac_table_stats(self, netinst_name):
         table_path = build_path(
             '/network-instance[name={name}]/bridge-table/statistics',
             name=netinst_name
         )
-        return self._state.server_data_store.stream_data(table_path, recursive=False, include_container_children=True)
+        return self._state.server.get_data_store(DataStore.State).stream_data(table_path, recursive=False, include_container_children=True)
 
     def _fetch_state_subinterface(self, int_name, subint_index):
         table_path = build_path(
@@ -113,14 +164,14 @@ class EthernetSwitchingReport:
             name=int_name,
             index=str(subint_index)
         )
-        return self._state.server_data_store.get_data(table_path, recursive=True, include_container_children=True)
+        return self._state.server.get_data_store(DataStore.State).get_data(table_path, recursive=True, include_container_children=True)
 
     def _fetch_state_int_hw_mac(self, int_name):
         table_path = build_path(
             '/interface[name={name}]/ethernet/hw-mac-address',
             name=int_name
         )
-        return self._state.server_data_store.stream_data(table_path, recursive=False, include_container_children=True)
+        return self._state.server.get_data_store(DataStore.State).stream_data(table_path, recursive=False, include_container_children=True)
 
     def _fetch_state_irb_subinterface_anycast_mac(self, int_name, subint_index):
         table_path = build_path(
@@ -128,7 +179,7 @@ class EthernetSwitchingReport:
             name=int_name,
             index=str(subint_index)
         )
-        return self._state.server_data_store.stream_data(table_path, recursive=False, include_container_children=True)
+        return self._state.server.get_data_store(DataStore.State).stream_data(table_path, recursive=False, include_container_children=True)
 
     def _get_interface_name_index_from_netinstance_data(self, network_interface_data ):
         interface_name_index_list=[]
@@ -141,9 +192,11 @@ class EthernetSwitchingReport:
                     interface_name = interface_ref.interface
                     subint_index = interface_ref.subinterface
                 else:
-                    interface_name, subint_index = network_interface_entry.name.split('.', 1)
+                    raw_name = str(network_interface_entry.name)
+                    interface_name, subint_index = raw_name.split('.', 1) if '.' in raw_name else (raw_name, '0')
             else:
-                interface_name, subint_index = network_interface_entry.name.split('.', 1)
+                raw_name = str(network_interface_entry.name)
+                interface_name, subint_index = raw_name.split('.', 1) if '.' in raw_name else (raw_name, '0')
 
             if any(sub in interface_name for sub in ["irb", "lo"]):
                 continue
@@ -178,9 +231,11 @@ class EthernetSwitchingReport:
                     interface_name = interface_ref.interface
                     subint_index = interface_ref.subinterface
                 else:
-                    interface_name, subint_index = network_interface_entry.name.split('.', 1)
+                    raw_name = str(network_interface_entry.name)
+                    interface_name, subint_index = raw_name.split('.', 1) if '.' in raw_name else (raw_name, '0')
             else:
-                interface_name, subint_index = network_interface_entry.name.split('.', 1)
+                raw_name = str(network_interface_entry.name)
+                interface_name, subint_index = raw_name.split('.', 1) if '.' in raw_name else (raw_name, '0')
 
             if not "irb" in interface_name:
                 continue
@@ -193,12 +248,29 @@ class EthernetSwitchingReport:
             else:
                 anycast_gw_mac = ""
 
-            hw_mac = hw_mac_data.interface.get().ethernet.get().hw_mac_address
+            hw_mac = ""
+            try:
+                if hw_mac_data and hasattr(hw_mac_data, 'interface') and hw_mac_data.interface.exists():
+                    intf_node = hw_mac_data.interface.get()
+                    if hasattr(intf_node, 'ethernet') and intf_node.ethernet.exists():
+                        eth_node = intf_node.ethernet.get()
+                        hw_mac = getattr(eth_node, 'hw_mac_address', '') or ''
+            except Exception:
+                hw_mac = ""
             interface_name_index_list.append({"name": interface_name, "index": str(subint_index), "hw_mac": hw_mac, "anycast_gw_mac": anycast_gw_mac})
 
         return interface_name_index_list
     
     def _find_vlan(self, interfaces, query):
+        if not query:
+            return "-"
+        m_irb = re.search(r'irb\d*\.(\d+)', query)
+        if m_irb:
+            for entry in interfaces:
+                tag = entry.get("tagging", "-")
+                if tag and tag not in ("null", "untagged", "-"):
+                    return tag
+            return m_irb.group(1) if m_irb.group(1) != '0' else '1'
         # Extract interface name and index using regex
         match = re.match(r'(.+)\.(\d+)', query)
         if not match:
@@ -209,7 +281,10 @@ class EthernetSwitchingReport:
         # Search for the matching interface
         for entry in interfaces:
             if entry["name"] == interface_name and entry["index"] == index:
-                return entry["tagging"]
+                tag = entry.get("tagging", "-")
+                if tag not in ("null", "untagged", "-"):
+                    return tag
+                return index if index != '0' else '1'
         return "-"
 
     def _get_mac_code(self, mac_type, active):
@@ -227,6 +302,9 @@ class EthernetSwitchingReport:
             for irb in irb_interface_name_index_list:
                 if irb["hw_mac"] == mac_entry_address or irb["anycast_gw_mac"] == mac_entry_address:
                     logical_interface = f'{irb["name"]}.{irb["index"]}(R)'
+            if logical_interface == "irb(R)" and irb_interface_name_index_list:
+                first_irb = irb_interface_name_index_list[0]
+                logical_interface = f'{first_irb["name"]}.{first_irb["index"]}(R)'
         elif match_else:
             logical_interface = match_else.group()
         else:
@@ -245,9 +323,10 @@ class EthernetSwitchingReport:
         return ""
 
     def _populate_mac_table(self, netinst_server_data, data_root):
-        subinterface_name = self._arguments.get_value_or('interface','name',None)
+        raw_intf_arg = self._get_arg('interface', 'name', None)
+        subinterface_name = _junos_to_srl_intf(raw_intf_arg) if raw_intf_arg is not None else None
         interface_as_argument = True if subinterface_name and "." not in subinterface_name else False
-        vlan_value = self._arguments.get_value_or('vlan','value',None)
+        vlan_value = self._get_arg('vlan', 'value', None)
 
         for netinst in netinst_server_data.network_instance.items():
             if netinst.type != 'mac-vrf':
@@ -259,12 +338,30 @@ class EthernetSwitchingReport:
             irb_interface_name_index_list = self._get_irbs_from_netinstance_data(network_interface_data)
             interface_name_index_list = self._get_interface_name_index_from_netinstance_data (network_interface_data)
 
+            default_netinst_vlan = "-"
+            for intf_entry in interface_name_index_list:
+                tag = intf_entry.get("tagging")
+                if tag and tag not in ("null", "untagged", "-"):
+                    default_netinst_vlan = tag
+                    break
+            if default_netinst_vlan == "-":
+                for irb_entry in irb_interface_name_index_list:
+                    idx = irb_entry.get("index")
+                    if idx is not None and str(idx) != "":
+                        default_netinst_vlan = str(idx) if str(idx) != '0' else '1'
+                        break
+            if default_netinst_vlan == "-" and interface_name_index_list:
+                default_netinst_vlan = '1'
+
             for mac_entry in mac_data.get_descendants('/network-instance/bridge-table/mac-table/mac'):
                 logical_subinterface = self._get_logical_interface(mac_entry.address, mac_entry.destination, irb_interface_name_index_list)
-                logical_interface = logical_subinterface.split('.')[0] if logical_subinterface else None
+                clean_subintf = logical_subinterface.replace('(R)', '') if logical_subinterface else ''
+                logical_interface = clean_subintf.split('.')[0] if clean_subintf else None
                 vlan = self._find_vlan(interface_name_index_list,logical_subinterface)
+                if vlan == "-":
+                    vlan = default_netinst_vlan
                 # if an interface (without the "".subint") is given as argument we populate the mac table for all its subinterfaces
-                if subinterface_name is not None and subinterface_name != logical_subinterface:
+                if subinterface_name is not None and subinterface_name not in (logical_subinterface, clean_subintf):
                     if not interface_as_argument or subinterface_name != logical_interface:
                         continue
                 if vlan_value is not None and vlan_value != vlan:
@@ -353,8 +450,7 @@ class StatisticsFormatter(Formatter):
 
 srlinux_suggested_command = """ 
 ------------------------------------------------------------------------------------------------
-Try SR Linux command:
-->   show network-instance <instance> bridge-table mac-table all
-->   show interface ethernet-x/y.z | grep Encapsulation
+Try SR Linux command: show network-instance bridge-table mac-table all
+Try SR Linux command: show interface brief
 """
 

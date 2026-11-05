@@ -1,0 +1,9 @@
+Package: srl-multicli
+Version: 0.2.0
+Section: net
+Priority: optional
+Architecture: amd64
+License: Apache-2.0
+Maintainer: nahuel.coco@nokia.com
+Installed-Size: 36
+Description: MultiCLI NDK agent for Nokia SR Linux

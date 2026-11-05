@@ -2,15 +2,41 @@
 
 The following CLI plugins are available in this repo:
 
-| Command | Contributor |
+| Command | Description / Contributor |
 |---|---|
-| `show router bgp summary` | [giancarlo3g](https://github.com/giancarlo3g) |
-| `show service id <id> evpn-mpls` | [zenodhaene](https://github.com/zenodhaene) |
-| `show service id <id> vxlan` | [zenodhaene](https://github.com/zenodhaene) |
+| `show version` | Nokia SR OS formatted software version and chassis info |
+| `show system information` | System name, uptime, active slot, SSH/SNMP status, and clock |
+| `show chassis` | Chassis hardware, serial number, fan trays, and power supplies |
+| `show port [<id>]` | Port status, link state, MTU, LAG membership, and encapsulation |
+| `show port description` | Port descriptions per slot |
+| `show lag` | LAG operational state, threshold, and active member count |
+| `show system lldp neighbor` | LLDP remote system neighbor information |
+| `show router [<netinst>] route-table` | IPv4 route table with next-hops, protocols, and metrics |
+| `show router [<netinst>] interface` | Router interface table with IPv4/IPv6 addresses and states |
+| `show router [<netinst>] arp` | Router ARP table with dynamic/static type and expiry |
+| `show router [<netinst>] bgp summary` | BGP summary and neighbor statistics ([giancarlo3g](https://github.com/giancarlo3g)) |
+| `show router [<netinst>] ospf neighbor` | OSPFv2 neighbor adjacencies and states |
+| `show router [<netinst>] isis adjacency` | IS-IS adjacencies, levels, and hold timers |
+| `show service service-using` | Configured VPLS (`mac-vrf`) and VPRN (`ip-vrf`) services |
+| `show service fdb mac` | Forwarding database MAC table across all services |
+| `show service id <id> fdb mac` | Forwarding database MAC table for a specific service |
+| `show service id <id> evpn-mpls` | EVPN-MPLS destinations ([zenodhaene](https://github.com/zenodhaene)) |
+| `show service id <id> vxlan destinations` | EVPN-VxLAN destinations ([zenodhaene](https://github.com/zenodhaene)) |
 
-## Testing
+## Usage & Testing
 
-Deploy the EVPN lab. Login to any leaf or spine node using `nokuser/nokuser` and try any of the above commands.
+All commands above can be executed directly under `show ...` when Nokia SR OS is the active persona (or when logged in as `nokuser/nokuser`), or via the `sros` subtree (`sros show ...` or interactive `sros` mode) when multiple personas are installed. Because Nokia SR OS overrides `show version`, `show lag`, and `show system lldp neighbor` at the root `show` tree, native SR Linux equivalents remain accessible via `srl show version`, `srl show lag [<name>] [brief|detail|lacp-state|lacp-stats|member-stats]`, and `srl show system lldp neighbor [--interface <name>]`.
+
+Deploy the EVPN lab and log in to a switch configured with the Nokia SR OS persona:
+
+```bash
+docker exec -it leaf2-2 sr_cli
+```
+
+Or switch any node on-the-fly using the helper script:
+```bash
+./tools/switch-multicli.sh nokia leaf2-2
+```
 
 ## Nokia SROS scripts
 
@@ -18,7 +44,7 @@ Deploy the EVPN lab. Login to any leaf or spine node using `nokuser/nokuser` and
 
 This script introduces a custom command that allows the user to visualize the EVPN endpoints for both single-homed and multi-homed (ethernet segment) destinations. This is useful for figuring out where an EVPN-enabled service is configured.
 
-The command works for EVPN services with both VxLAN and MPLS transport tunnels. It requires the `service_report.py` script to also be copied to the `plugins` folder.
+The command works for EVPN services with both VxLAN and MPLS transport tunnels and is registered automatically by `plugins/main_nokia.py` alongside the service reports in `service/sros_service_reports.py`.
 
 ### Command syntax (EVPN-VxLAN services)
 
@@ -33,7 +59,7 @@ Where `evpn-vxlan` is an EVPN-enabled service with VxLAN transport tunnels.
 
     ```
     --{ + running }--[  ]--
-    A:admin@leaf-3# /show service id evpn-vxlan vxlan destinations
+    A:admin@leaf2-2# /show service id evpn-vxlan vxlan destinations
 
     ===============================================================================
     Egress VTEP, VNI (Instance 1)
@@ -93,7 +119,7 @@ Where `srmpls-evpn-vpls` is an EVPN-enabled service with SR-MPLS transport tunne
 
     ```
     --{ + running }--[  ]--
-    A:CE-SXR-1# / show service id srmpls-evpn-vpls evpn-mpls
+    A:admin@leaf2-2# / show service id srmpls-evpn-vpls evpn-mpls
 
     ===============================================================================
     BGP EVPN-MPLS Dest (Instance 1)
