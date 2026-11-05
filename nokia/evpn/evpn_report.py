@@ -1,23 +1,23 @@
 #!/usr/bin/python
 ###########################################################################
-# Description: EVPN-MPLS command for the SRLinux MultiCLI project for SROS commands
+# Description: EVPN-MPLS and EVPN-VXLAN commands for the SRLinux MultiCLI project for SROS commands
 #
 # Copyright (c) 2025 Nokia
 ###########################################################################
 
-from srlinux.mgmt.cli.execute_error import ExecuteError
-from srlinux.schema import FixedSchemaRoot
-from srlinux.location import build_path
-from srlinux.data import Data, ColumnFormatter, TagValueFormatter, Formatter
-from srlinux.mgmt.server.server_error import ServerError
-from srlinux.data.utilities import print_line
-
 from datetime import datetime
+
+from srlinux.data import Data, Formatter
+from srlinux.location import build_path
+from srlinux.mgmt.cli.execute_error import ExecuteError
+from srlinux.mgmt.server.server_error import ServerError
+from srlinux.schema import FixedSchemaRoot
+from srlinux.schema.data_store import DataStore
 
 
 class EvpnDestinationReport(object):
     """
-    Adds `show service id evpn-mpls` command.
+    Adds `show service id <id> evpn-mpls` and `show service id <id> vxlan destinations` commands.
 
     Example output:
     ```
@@ -88,6 +88,18 @@ class EvpnDestinationReport(object):
 
         return root
 
+    def _is_mpls_capable(self, state):
+        if state and hasattr(state, "system_features") and state.system_features.features:
+            return bool(state.system_features.evpn_mpls)
+        c = (self._chassis_type or "").lower()
+        return c.startswith("7730") or c.startswith("7250")
+
+    def _is_vxlan_capable(self, state):
+        if state and hasattr(state, "system_features") and state.system_features.features:
+            return bool(state.system_features.vxlan)
+        c = (self._chassis_type or "").lower()
+        return not c.startswith("7730")
+
     def print_mpls(
         self,
         state,
@@ -95,18 +107,26 @@ class EvpnDestinationReport(object):
         output,
         **_kwargs,
     ) -> None:
-        self._fetch_state(state, arguments)
+        self._fetch_state(state, arguments, mode="mpls")
+
+        if not self._is_mpls_capable(state):
+            raise ExecuteError(
+                f"EVPN-MPLS is not supported on chassis type '{self._chassis_type or 'unknown'}'"
+            )
 
         data = Data(schema=arguments.schema)
-
-        if self._chassis_type.startswith("7730"):
-            self._populate_data_mpls(data)
-
-        if self._chassis_type.startswith("7220"):
-            raise ExecuteError("VxLAN not available on IXR 7220")
-
-        self._set_formatters(data, arguments)
-        output.print_data(data)
+        self._populate_data_mpls(data)
+        self._set_formatters(data, arguments, state, mode="mpls")
+        if len(list(data.network.items())) > 0:
+            output.print_data(data)
+        else:
+            empty_tbl = SROSTable("BGP EVPN-MPLS Dest (Instance 1)", "Number of entries: ", 79, [])
+            empty_tbl.set_column_widths([32, 18, 11, 6, 7, 4])
+            empty_tbl.add_header(["TEP Address", "Transpor:Tnl", "Egr Label", "Oper", "Mcast", "Num"])
+            empty_tbl.add_header(["", "", "", "State", "", "MACs"])
+            for line in empty_tbl.print_table():
+                output.print_line(line)
+        output.print_line("\nTry SR Linux command: show network-instance * protocols bgp-evpn")
 
     def print_vxlan(
         self,
@@ -115,90 +135,112 @@ class EvpnDestinationReport(object):
         output,
         **_kwargs,
     ) -> None:
-        self._fetch_state(state, arguments)
+        self._fetch_state(state, arguments, mode="vxlan")
+
+        if not self._is_vxlan_capable(state):
+            raise ExecuteError(
+                f"VxLAN is not supported on chassis type '{self._chassis_type or 'unknown'}'"
+            )
 
         data = Data(schema=arguments.schema)
+        self._populate_data_vxlan(data)
+        self._set_formatters(data, arguments, state, mode="vxlan")
+        if len(list(data.network.items())) > 0:
+            output.print_data(data)
+        else:
+            empty_tbl = SROSTable("Egress VTEP, VNI (Instance 1)", "Number of Egress VTEP, VNI : ", 79, [])
+            empty_tbl.set_column_widths([52, 11, 6, 6, 4])
+            empty_tbl.add_header(["VTEP Address", "Egress VNI", "Oper", "Mcast", "Num"])
+            empty_tbl.add_header(["", "", "State", "", "MACs"])
+            for line in empty_tbl.print_table():
+                output.print_line(line)
+        output.print_line("\nTry SR Linux command: show network-instance * vxlan-interface")
 
-        if self._chassis_type.startswith("7730"):
-            raise ExecuteError("VxLan not available on SXR 7730")
-
-        if self._chassis_type.startswith("7220"):
-            self._populate_data_vxlan(data)
-
-        self._set_formatters(data, arguments)
-        output.print_data(data)
-
-    def _fetch_state(self, state, arguments):
+    def _fetch_state(self, state, arguments, mode=None):
         chassis_type_path = build_path("/platform/chassis/type")
+        self._chassis_type = ""
 
         try:
             self._chassis_type = (
-                state.server_data_store.get_data(chassis_type_path, recursive=False)
+                state.server.get_data_store(DataStore.State)
+                .get_data(chassis_type_path, recursive=False)
                 .platform.get()
                 .chassis.get()
                 .type
             )
-        except ServerError as e:
-            print(f"Could not retrieve chassis type, message: '{e}'")
+        except ServerError:
+            self._chassis_type = ""
 
-        if self._chassis_type.startswith("7730"):
+        if mode in (None, "mpls") and self._is_mpls_capable(state):
             self._fetch_state_mpls(state, arguments)
 
-        if self._chassis_type.startswith("7220"):
+        if mode in (None, "vxlan") and self._is_vxlan_capable(state):
             self._fetch_state_vxlan(state, arguments)
 
+    def _get_service_name(self, state, arguments):
+        if arguments and hasattr(arguments, "has_node") and arguments.has_node("id"):
+            val = arguments.get_value_or("id", "name", "*")
+            if val:
+                return val
+        if state and hasattr(state, "line_commands") and state.line_commands:
+            if hasattr(state.line_commands, "has_node") and state.line_commands.has_node("id"):
+                val = state.line_commands.get_value_or("id", "name", "*")
+                if val:
+                    return val
+        return "*"
+
     def _fetch_state_mpls(self, state, arguments):
+        service_name = self._get_service_name(state, arguments)
         mpls_multicast_destinations_path = build_path(
             "/network-instance[name={netinst_name}]/protocols/bgp-evpn/bgp-instance[id=*]/mpls/bridge-table/multicast-destinations",
-            netinst_name=arguments.get("id", "name"),
+            netinst_name=service_name,
         )
 
         mpls_unicast_destinations_path = build_path(
             "/network-instance[name={netinst_name}]/protocols/bgp-evpn/bgp-instance[id=*]/mpls/bridge-table/unicast-destinations",
-            netinst_name=arguments.get("id", "name"),
+            netinst_name=service_name,
         )
 
         route_table_path = build_path(
             "/network-instance[name={netinst_name}]/route-table",
-            netinst_name=arguments.get("id", "name"),
+            netinst_name=service_name,
         )
 
         try:
-            self._mpls_multicast_destinations_data = state.server_data_store.get_data(
+            self._mpls_multicast_destinations_data = state.server.get_data_store(DataStore.State).get_data(
                 mpls_multicast_destinations_path, recursive=True
             )
 
-            self._mpls_unicast_destinations_data = state.server_data_store.get_data(
+            self._mpls_unicast_destinations_data = state.server.get_data_store(DataStore.State).get_data(
                 mpls_unicast_destinations_path, recursive=True
             )
 
-            self._route_table_data = state.server_data_store.get_data(
+            self._route_table_data = state.server.get_data_store(DataStore.State).get_data(
                 route_table_path, recursive=True
             )
-        except ServerError as e:
-            print(f"Could not retrieve MPLS tunnel data, message: '{e}'")
+        except ServerError:
             self._mpls_multicast_destinations_data = None
             self._mpls_unicast_destinations_data = None
             self._route_table_data = None
 
     def _fetch_state_vxlan(self, state, arguments):
+        service_name = self._get_service_name(state, arguments)
         vxlan_interface_path = build_path(
             "/network-instance[name={netinst_name}]/vxlan-interface",
-            netinst_name=arguments.get("id", "name"),
+            netinst_name=service_name,
         )
 
         tunnel_interface_path = build_path("/tunnel-interface")
 
         try:
-            self._vxlan_interface_data = state.server_data_store.get_data(
+            self._vxlan_interface_data = state.server.get_data_store(DataStore.State).get_data(
                 vxlan_interface_path, recursive=True
             )
 
-            self._tunnel_interface_data = state.server_data_store.get_data(
+            self._tunnel_interface_data = state.server.get_data_store(DataStore.State).get_data(
                 tunnel_interface_path, recursive=True
             )
-        except ServerError as e:
-            print(f"Could not retrieve VXLAN tunnel data, message: '{e}'")
+        except ServerError:
             self._vxlan_interface_data = None
             self._tunnel_interface_data = None
 
@@ -207,32 +249,33 @@ class EvpnDestinationReport(object):
         ethernet_segments = {}
 
         # multicast
-        for (
-            network_instance
-        ) in self._mpls_multicast_destinations_data.network_instance.items():
-            tunnels[network_instance.name] = self.get_mpls_multicast_tunnels(
-                network_instance.name
-            )
+        if self._mpls_multicast_destinations_data and hasattr(
+            self._mpls_multicast_destinations_data, "network_instance"
+        ):
+            for network_instance in self._mpls_multicast_destinations_data.network_instance.items():
+                tunnels[network_instance.name] = self.get_mpls_multicast_tunnels(
+                    network_instance.name
+                )
 
         # unicast
-        for (
-            network_instance
-        ) in self._mpls_unicast_destinations_data.network_instance.items():
-            existing_tunnels = (
-                tunnels[network_instance.name]
-                if network_instance.name in tunnels.keys()
-                else []
-            )
-            unicast_tunnels = self.get_mpls_unicast_tunnels(network_instance.name)
-            existing_tunnels.extend(unicast_tunnels)
+        if self._mpls_unicast_destinations_data and hasattr(
+            self._mpls_unicast_destinations_data, "network_instance"
+        ):
+            for network_instance in self._mpls_unicast_destinations_data.network_instance.items():
+                existing_tunnels = (
+                    tunnels[network_instance.name]
+                    if network_instance.name in tunnels.keys()
+                    else []
+                )
+                unicast_tunnels = self.get_mpls_unicast_tunnels(network_instance.name)
+                existing_tunnels.extend(unicast_tunnels)
+                tunnels[network_instance.name] = existing_tunnels
 
-        # ethernet segments
-        for (
-            network_instance
-        ) in self._mpls_unicast_destinations_data.network_instance.items():
-            ethernet_segments[network_instance.name] = self.get_mpls_ethernet_segments(
-                network_instance.name
-            )
+            # ethernet segments
+            for network_instance in self._mpls_unicast_destinations_data.network_instance.items():
+                ethernet_segments[network_instance.name] = self.get_mpls_ethernet_segments(
+                    network_instance.name
+                )
 
         # convert to schema node
         for netinst in tunnels:
@@ -253,19 +296,39 @@ class EvpnDestinationReport(object):
 
         return data
 
+    def _get_vxlan_bridge_table(self, vxlan_interface_name):
+        if not self._tunnel_interface_data or not hasattr(self._tunnel_interface_data, "tunnel_interface"):
+            return None
+        parts = str(vxlan_interface_name).split(".", 1)
+        if len(parts) != 2:
+            return None
+        intf, subintf = parts
+        ti = self._tunnel_interface_data.tunnel_interface.get(intf)
+        if ti is None or not hasattr(ti, "vxlan_interface"):
+            return None
+        try:
+            vxlan_intf = ti.vxlan_interface.get(int(subintf))
+        except ValueError:
+            return None
+        if vxlan_intf is None or not hasattr(vxlan_intf, "bridge_table") or not vxlan_intf.bridge_table.exists():
+            return None
+        return vxlan_intf.bridge_table.get()
+
     def _populate_data_vxlan(self, data):
         tunnels = {}
         ethernet_segments = {}
 
-        for network_instance in self._vxlan_interface_data.network_instance.items():
-            for vxlan_interface in network_instance.vxlan_interface.items():
-                # tunnels
-                tunnels[network_instance.name] = self.get_vxlan_tunnels(
-                    vxlan_interface.name
-                )
-                ethernet_segments[network_instance.name] = (
-                    self.get_vxlan_ethernet_segments(vxlan_interface.name)
-                )
+        if self._vxlan_interface_data and hasattr(self._vxlan_interface_data, "network_instance"):
+            for network_instance in self._vxlan_interface_data.network_instance.items():
+                for vxlan_interface in network_instance.vxlan_interface.items():
+                    if self._get_vxlan_bridge_table(vxlan_interface.name) is None:
+                        continue
+                    tunnels.setdefault(network_instance.name, []).extend(
+                        self.get_vxlan_tunnels(vxlan_interface.name)
+                    )
+                    ethernet_segments.setdefault(network_instance.name, []).extend(
+                        self.get_vxlan_ethernet_segments(vxlan_interface.name)
+                    )
 
         # convert to schema node
         for netinst in tunnels:
@@ -273,7 +336,7 @@ class EvpnDestinationReport(object):
             for tunnel in sorted(tunnels[netinst], key=lambda x: x.tep_address):
                 tunnel.to_node(netinst_node)
 
-            for es in ethernet_segments[netinst]:
+            for es in ethernet_segments.get(netinst, []):
                 es.to_node(netinst_node)
 
         return data
@@ -283,14 +346,16 @@ class EvpnDestinationReport(object):
         netinst = self._mpls_multicast_destinations_data.network_instance.get(
             netinst_name
         )
+        if netinst is None or not netinst.protocols.exists() or not netinst.protocols.get().bgp_evpn.exists():
+            return tunnels
 
         for bgp_instance in netinst.protocols.get().bgp_evpn.get().bgp_instance.items():
-            for mc_tunnel in (
-                bgp_instance.mpls.get()
-                .bridge_table.get()
-                .multicast_destinations.get()
-                .destination.items()
-            ):
+            if not bgp_instance.mpls.exists() or not bgp_instance.mpls.get().bridge_table.exists():
+                continue
+            bt = bgp_instance.mpls.get().bridge_table.get()
+            if not bt.multicast_destinations.exists():
+                continue
+            for mc_tunnel in bt.multicast_destinations.get().destination.items():
                 tunnels.append(
                     MPLSTunnel(
                         mc_tunnel.tunnel_id,
@@ -312,14 +377,16 @@ class EvpnDestinationReport(object):
         netinst = self._mpls_unicast_destinations_data.network_instance.get(
             netinst_name
         )
+        if netinst is None or not netinst.protocols.exists() or not netinst.protocols.get().bgp_evpn.exists():
+            return tunnels
 
         for bgp_instance in netinst.protocols.get().bgp_evpn.get().bgp_instance.items():
-            for mc_tunnel in (
-                bgp_instance.mpls.get()
-                .bridge_table.get()
-                .unicast_destinations.get()
-                .destination.items()
-            ):
+            if not bgp_instance.mpls.exists() or not bgp_instance.mpls.get().bridge_table.exists():
+                continue
+            bt = bgp_instance.mpls.get().bridge_table.get()
+            if not bt.unicast_destinations.exists():
+                continue
+            for mc_tunnel in bt.unicast_destinations.get().destination.items():
                 tunnels.append(
                     MPLSTunnel(
                         mc_tunnel.tunnel_id,
@@ -330,7 +397,7 @@ class EvpnDestinationReport(object):
                         ),
                         "Up",
                         "None",
-                        mc_tunnel.mac_table.get().mac.count(),
+                        mc_tunnel.mac_table.get().mac.count() if mc_tunnel.mac_table.exists() else 0,
                     )
                 )
 
@@ -341,30 +408,40 @@ class EvpnDestinationReport(object):
         netinst = self._mpls_unicast_destinations_data.network_instance.get(
             netinst_name
         )
+        if netinst is None or not netinst.protocols.exists() or not netinst.protocols.get().bgp_evpn.exists():
+            return ethernet_segments
 
         for bgp_instance in netinst.protocols.get().bgp_evpn.get().bgp_instance.items():
-            for es_destination in (
-                bgp_instance.mpls.get()
-                .bridge_table.get()
-                .unicast_destinations.get()
-                .es_destination.items()
-            ):
-                updates = [
-                    datetime.strptime(mac.last_update, "%Y-%m-%dT%H:%M:%S.%fZ")
-                    for mac in es_destination.mac_table.get().mac.items()
-                ]
+            if not bgp_instance.mpls.exists() or not bgp_instance.mpls.get().bridge_table.exists():
+                continue
+            bt = bgp_instance.mpls.get().bridge_table.get()
+            if not bt.unicast_destinations.exists():
+                continue
+            for es_destination in bt.unicast_destinations.get().es_destination.items():
+                updates = []
+                if hasattr(es_destination, "mac_table") and es_destination.mac_table.exists():
+                    for mac in es_destination.mac_table.get().mac.items():
+                        if hasattr(mac, "last_update") and mac.last_update:
+                            ts = str(mac.last_update).split()[0]
+                            try:
+                                updates.append(datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ"))
+                            except Exception:
+                                try:
+                                    updates.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
+                                except Exception:
+                                    pass
                 ethernet_segments.append(
                     EthernetSegment(
                         es_destination.esi,
                         sum(
                             mac_type.total_entries
                             for mac_type in es_destination.statistics.get().mac_type.items()
-                        ),
-                        [
+                        ) if es_destination.statistics.exists() else 0,
+                        ", ".join(
                             destination.tep
                             for destination in es_destination.destination.items()
-                        ],
-                        max(updates),
+                        ),
+                        max(updates).strftime("%Y-%m-%d %H:%M:%S") if updates else "N/A",
                     )
                 )
 
@@ -372,105 +449,109 @@ class EvpnDestinationReport(object):
 
     def get_vxlan_tunnels(self, vxlan_interface_name):
         tunnels = []
-        (intf, subintf) = vxlan_interface_name.split(".")
-
-        vxlan_intf = self._tunnel_interface_data.tunnel_interface.get(
-            intf
-        ).vxlan_interface.get(int(subintf))
-        bridge_table = vxlan_intf.bridge_table.get()
+        bridge_table = self._get_vxlan_bridge_table(vxlan_interface_name)
+        if bridge_table is None:
+            return tunnels
 
         # BUM tunnels
-        for (
-            mcast_tunnel
-        ) in bridge_table.multicast_destinations.get().destination.items():
-            tunnels.append(
-                VXLANTunnel(
-                    mcast_tunnel.vtep,
-                    mcast_tunnel.vni,
-                    mcast_tunnel.multicast_forwarding,
-                    "Up",
-                    "N/A",
+        if hasattr(bridge_table, "multicast_destinations") and bridge_table.multicast_destinations.exists():
+            for (
+                mcast_tunnel
+            ) in bridge_table.multicast_destinations.get().destination.items():
+                tunnels.append(
+                    VXLANTunnel(
+                        mcast_tunnel.vtep,
+                        mcast_tunnel.vni,
+                        mcast_tunnel.multicast_forwarding,
+                        "Up",
+                        "N/A",
+                    )
                 )
-            )
 
         # Unicast tunnels
-        for (
-            unicast_tunnel
-        ) in bridge_table.unicast_destinations.get().destination.items():
-            tunnels.append(
-                VXLANTunnel(
-                    unicast_tunnel.vtep,
-                    unicast_tunnel.vni,
-                    "None",
-                    "Up",
-                    sum(
-                        mac_type.total_entries
-                        for mac_type in unicast_tunnel.statistics.get().mac_type.items()
-                    ),
+        if hasattr(bridge_table, "unicast_destinations") and bridge_table.unicast_destinations.exists():
+            for (
+                unicast_tunnel
+            ) in bridge_table.unicast_destinations.get().destination.items():
+                tunnels.append(
+                    VXLANTunnel(
+                        unicast_tunnel.vtep,
+                        unicast_tunnel.vni,
+                        "None",
+                        "Up",
+                        sum(
+                            mac_type.total_entries
+                            for mac_type in unicast_tunnel.statistics.get().mac_type.items()
+                        ) if unicast_tunnel.statistics.exists() else 0,
+                    )
                 )
-            )
 
         return tunnels
 
     def get_vxlan_ethernet_segments(self, vxlan_interface_name):
         ethernet_segments = []
-        (intf, subintf) = vxlan_interface_name.split(".")
-
-        vxlan_intf = self._tunnel_interface_data.tunnel_interface.get(
-            intf
-        ).vxlan_interface.get(int(subintf))
-        bridge_table = vxlan_intf.bridge_table.get()
+        bridge_table = self._get_vxlan_bridge_table(vxlan_interface_name)
+        if bridge_table is None or not hasattr(bridge_table, "unicast_destinations") or not bridge_table.unicast_destinations.exists():
+            return ethernet_segments
 
         # Ethernet Segments
         for es in bridge_table.unicast_destinations.get().es_destination.items():
-            updates = [
-                datetime.strptime(mac.last_update, "%Y-%m-%dT%H:%M:%S.%fZ")
-                for mac in es.mac_table.get().mac.items()
-            ]
+            updates = []
+            if hasattr(es, "mac_table") and es.mac_table.exists():
+                for mac in es.mac_table.get().mac.items():
+                    if hasattr(mac, "last_update") and mac.last_update:
+                        ts = str(mac.last_update).split()[0]
+                        try:
+                            updates.append(datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ"))
+                        except Exception:
+                            try:
+                                updates.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
+                            except Exception:
+                                pass
             ethernet_segments.append(
                 EthernetSegment(
                     es.esi,
                     sum(
                         mac_type.total_entries
                         for mac_type in es.statistics.get().mac_type.items()
-                    ),
+                    ) if es.statistics.exists() else 0,
                     ", ".join([vtep.address for vtep in es.vtep.items()]),
-                    max(updates),
+                    max(updates).strftime("%Y-%m-%d %H:%M:%S") if updates else "N/A",
                 )
             )
 
         return ethernet_segments
 
     def get_transport_tunnel(self, netinst_name, next_hop_group_id):
-        next_hop_group = (
-            self._route_table_data.network_instance.get(netinst_name)
-            .route_table.get()
-            .next_hop_group.get(next_hop_group_id)
-        )
-        if next_hop_group.next_hop.count() > 1:
-            raise Exception(
-                "Multiple hops in a tunnel next-hop-group are not supported"
-            )
+        if not self._route_table_data or not hasattr(self._route_table_data, "network_instance"):
+            return "N/A"
+        netinst = self._route_table_data.network_instance.get(netinst_name)
+        if netinst is None or not netinst.route_table.exists():
+            return "N/A"
+        rt = netinst.route_table.get()
+        if not hasattr(rt, "next_hop_group"):
+            return "N/A"
+        next_hop_group = rt.next_hop_group.get(next_hop_group_id)
+        if next_hop_group is None or next_hop_group.next_hop.count() == 0:
+            return "N/A"
 
-        next_hop_id = next_hop_group.next_hop.get(0).next_hop
-        next_hop = (
-            self._route_table_data.network_instance.get(netinst_name)
-            .route_table.get()
-            .next_hop.get(next_hop_id)
-        )
+        resolved = []
+        for nh_entry in next_hop_group.next_hop.items():
+            nh = rt.next_hop.get(nh_entry.next_hop)
+            if nh is not None and hasattr(nh, "resolving_tunnel") and nh.resolving_tunnel.exists():
+                resolving_tunnel = nh.resolving_tunnel.get()
+                tnl_str = f"{resolving_tunnel.tunnel_type}:{resolving_tunnel.tunnel_id}"
+                if tnl_str not in resolved:
+                    resolved.append(tnl_str)
+        return ", ".join(resolved) if resolved else "N/A"
 
-        resolving_tunnel = next_hop.resolving_tunnel.get()
-        return f"{resolving_tunnel.tunnel_type}:{resolving_tunnel.tunnel_id}"
-
-    def _set_formatters(self, data, arguments):
-        if self._chassis_type.startswith("7220"):
+    def _set_formatters(self, data, arguments, state, mode=None):
+        if mode == "vxlan" or (mode is None and self._is_vxlan_capable(state)):
             data.set_formatter("/network/vxlan_tunnel", VXLANVTEPFormatter())
-
             data.set_formatter("/network/ethernet_segment", VXLANESFormatter())
 
-        if self._chassis_type.startswith("7730"):
+        if mode == "mpls" or (mode is None and self._is_mpls_capable(state)):
             data.set_formatter("/network/mpls_tunnel", MPLSVTEPFormatter())
-
             data.set_formatter("/network/ethernet_segment", MPLSESFormatter())
 
 
@@ -657,7 +738,7 @@ class SROSTable:
         yield "-" * self.width
 
     def padded_string(self, text, width):
-        return f"{text}{' ' * (width - len(text))}"
+        return f"{text}{' ' * max(0, width - len(text))}"
 
 
 class MPLSTunnel:

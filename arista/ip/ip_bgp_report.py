@@ -1,11 +1,15 @@
 from srlinux.syntax import Syntax
 from srlinux.location import build_path
 from srlinux.mgmt.cli import KeyCompleter
+from srlinux.schema.data_store import DataStore
 import datetime
 
 class IpBgpReport:
     """Handles the 'show ip bgp summary' command functionality."""
     
+    def __init__(self):
+        self._attrSets_dict = {}
+
     # Class level constants
     PATH_TEMPLATES = {
         'bgp_instance': '/network-instance[name={network_instance}]/protocols/bgp',
@@ -33,11 +37,11 @@ class IpBgpReport:
                 return
                 
             # Print header and neighbor data
-            self._print_bgp_header(bgp_data, network_instance)
+            self._print_bgp_header(output, bgp_data, network_instance)
             neighbors = self._get_neighbor_data(bgp_data)
             
             if neighbors:
-                self._print_neighbor_table(neighbors)
+                self._print_neighbor_table(output, neighbors)
             else:
                 # No neighbors - exit silently
                 pass
@@ -52,7 +56,7 @@ class IpBgpReport:
             path = build_path(self.PATH_TEMPLATES['bgp_instance'].format(
                 network_instance=network_instance
             ))
-            return state.server_data_store.get_data(path, recursive=True)
+            return state.server.get_data_store(DataStore.State).get_data(path, recursive=True)
         except Exception:
             # Silently handle error
             return None
@@ -75,7 +79,7 @@ class IpBgpReport:
         except (AttributeError, Exception):
             return False
 
-    def _print_bgp_header(self, bgp_data, network_instance):
+    def _print_bgp_header(self, output, bgp_data, network_instance):
         """Print BGP header information"""
         router_id = "0.0.0.0"
         local_as = "N/A"
@@ -90,12 +94,12 @@ class IpBgpReport:
         except (AttributeError, Exception):
             pass
             
-        print(f"BGP summary information for VRF {network_instance}")
-        print(f"Router identifier {router_id}, local AS number {local_as}")
-        print("Neighbor Status Codes: m – Under maintenance")
+        output.print_line(f"BGP summary information for VRF {network_instance}")
+        output.print_line(f"Router identifier {router_id}, local AS number {local_as}")
+        output.print_line("Neighbor Status Codes: m – Under maintenance")
         
         # Print column headers
-        print("  Neighbor        V    AS     MsgRcvd   MsgSent   InQ    OutQ   Up/Down   State     PfxRcd    PfxAcc")
+        output.print_line("  Neighbor        V    AS     MsgRcvd   MsgSent   InQ    OutQ   Up/Down   State     PfxRcd    PfxAcc")
 
     def _get_neighbor_data(self, bgp_data):
         """Get BGP neighbor data"""
@@ -131,24 +135,26 @@ class IpBgpReport:
                             # Get message statistics
                             messages_received = 0
                             messages_sent = 0
+                            received_queue = 0
+                            sent_queue = 0
                 
                             if hasattr(neighbor, 'received_messages'):
                                 rm = neighbor.received_messages.get()
-                                if rm and hasattr(rm, 'total_messages'):
-                                    messages_received = rm.total_messages
-                                    received_queue = rm.queue_depth
+                                if rm:
+                                    messages_received = getattr(rm, 'total_messages', 0) or 0
+                                    received_queue = getattr(rm, 'queue_depth', 0) or 0
                         
                             if hasattr(neighbor, 'sent_messages'):
                                 sm = neighbor.sent_messages.get()
-                                if sm and hasattr(sm, 'total_messages'):
-                                    messages_sent = sm.total_messages
-                                    sent_queue = sm.queue_depth
+                                if sm:
+                                    messages_sent = getattr(sm, 'total_messages', 0) or 0
+                                    sent_queue = getattr(sm, 'queue_depth', 0) or 0
                             # Get prefix information
                             prefixes_received = 0
                             prefixes_accepted = 0                                       
-                            if hasattr(afi_safi, 'received_routes'):
+                            if hasattr(afi_safi, 'received_routes') and afi_safi.received_routes is not None:
                                 prefixes_received = afi_safi.received_routes
-                            if hasattr(afi_safi, 'active_routes'):
+                            if hasattr(afi_safi, 'active_routes') and afi_safi.active_routes is not None:
                                 prefixes_accepted = afi_safi.active_routes
                 
                             # Format uptime
@@ -185,18 +191,20 @@ class IpBgpReport:
                             # Get message statistics
                             messages_received = 0
                             messages_sent = 0
+                            received_queue = 0
+                            sent_queue = 0
                 
                             if hasattr(neighbor, 'received_messages'):
                                 rm = neighbor.received_messages.get()
-                                if rm and hasattr(rm, 'total_messages'):
-                                    messages_received = rm.total_messages
-                                    received_queue = rm.queue_depth
+                                if rm:
+                                    messages_received = getattr(rm, 'total_messages', 0)
+                                    received_queue = getattr(rm, 'queue_depth', 0)
                         
                             if hasattr(neighbor, 'sent_messages'):
                                 sm = neighbor.sent_messages.get()
-                                if sm and hasattr(sm, 'total_messages'):
-                                    messages_sent = sm.total_messages
-                                    sent_queue = sm.queue_depth
+                                if sm:
+                                    messages_sent = getattr(sm, 'total_messages', 0)
+                                    sent_queue = getattr(sm, 'queue_depth', 0)
                             # Get prefix information
                             prefixes_received = 0
                             prefixes_accepted = 0                                       
@@ -239,18 +247,20 @@ class IpBgpReport:
                             # Get message statistics
                             messages_received = 0
                             messages_sent = 0
+                            received_queue = 0
+                            sent_queue = 0
                 
                             if hasattr(neighbor, 'received_messages'):
                                 rm = neighbor.received_messages.get()
-                                if rm and hasattr(rm, 'total_messages'):
-                                    messages_received = rm.total_messages
-                                    received_queue = rm.queue_depth
+                                if rm:
+                                    messages_received = getattr(rm, 'total_messages', 0)
+                                    received_queue = getattr(rm, 'queue_depth', 0)
                         
                             if hasattr(neighbor, 'sent_messages'):
                                 sm = neighbor.sent_messages.get()
-                                if sm and hasattr(sm, 'total_messages'):
-                                    messages_sent = sm.total_messages
-                                    sent_queue = sm.queue_depth
+                                if sm:
+                                    messages_sent = getattr(sm, 'total_messages', 0)
+                                    sent_queue = getattr(sm, 'queue_depth', 0)
                             # Get prefix information
                             prefixes_received = 0
                             prefixes_accepted = 0                                       
@@ -296,23 +306,29 @@ class IpBgpReport:
         }
 
     def _populate_route_attrs(self, state, route_entry, netinst_name, attr_id, route_type='*'):
-        if not attr_id in self._attrSets_dict:
+        cache_key = (netinst_name, attr_id)
+        if cache_key not in self._attrSets_dict:
             path_attr = build_path('/network-instance[name={vrf}]/bgp-rib/attr-sets/attr-set[index={atr}]',
                               vrf=netinst_name, atr=str(attr_id))
-            attrSets = state.server_data_store.get_data(path_attr, recursive=True, include_container_children=True)
-            self._attrSets_dict[attr_id] = attrSets
+            attrSets = state.server.get_data_store(DataStore.State).get_data(path_attr, recursive=True, include_container_children=True)
+            self._attrSets_dict[cache_key] = attrSets
         else:
-            attrSets = self._attrSets_dict[attr_id]
+            attrSets = self._attrSets_dict[cache_key]
         for attr in attrSets.get_descendants('/network-instance/bgp-rib/attr-sets/attr-set'):
-            route_entry['nexthop_info'] = attr.next_hop
-            route_entry['locpref_info'] = attr.local_pref
-            as_path = attr.as_path.get().segment.get().member
-            if attr.origin == 'igp':
-                route_entry['path_info'] = ' '.join(map(str,as_path)) + ' i'
-            elif attr.origin == 'egp':
-                route_entry['path_info'] = ' '.join(map(str,as_path)) + ' e'
-            elif attr.origin == 'incomplete':
-                route_entry['path_info'] = '?'
+            route_entry['nexthop_info'] = getattr(attr, 'next_hop', '') or ''
+            route_entry['locpref_info'] = getattr(attr, 'local_pref', '') or ''
+            try:
+                as_path = attr.as_path.get().segment.get().member or []
+            except Exception:
+                as_path = []
+            as_str = (' '.join(map(str, as_path)) + ' ') if as_path else ''
+            origin = getattr(attr, 'origin', '')
+            if origin == 'igp':
+                route_entry['path_info'] = as_str + 'i'
+            elif origin == 'egp':
+                route_entry['path_info'] = as_str + 'e'
+            elif origin == 'incomplete':
+                route_entry['path_info'] = as_str + '?'
             if hasattr(attr, 'med') and attr.med:
                 route_entry['metric_info'] = attr.med
             else:
@@ -334,7 +350,7 @@ class IpBgpReport:
             status += ">"
         return status or '-'
 
-    def _print_neighbor_table(self, neighbors):
+    def _print_neighbor_table(self, output, neighbors):
         """Print formatted neighbor table"""
         for neighbor in sorted(neighbors, key=lambda x: str(x.get('peer_address', ''))):
             # Show the correct format based on BGP state
@@ -345,11 +361,11 @@ class IpBgpReport:
             else:
                 state_display = neighbor.get('state', 'Idle')
             
-            print(f"  {neighbor['peer_address']:<15} {neighbor['address_family']:<1}    {neighbor['peer_as']:<6} "
-                  f"{neighbor['msg_rcvd']:<9} {neighbor['msg_sent']:<9} "
-                  f"{neighbor['rx_queue']:<6} {neighbor['tx_queue']:<6} "
-                  f"{neighbor['up_time']:<9} {neighbor['state']:<9} " 
-                  f"{neighbor['pfx_received']:<9} {neighbor['pfx_accepted']:<9}")
+            output.print_line(f"  {neighbor['peer_address']:<15} {neighbor['address_family']:<1}    {neighbor['peer_as']:<6} "
+                              f"{neighbor['msg_rcvd']:<9} {neighbor['msg_sent']:<9} "
+                              f"{neighbor['rx_queue']:<6} {neighbor['tx_queue']:<6} "
+                              f"{neighbor['up_time']:<9} {neighbor['state']:<9} " 
+                              f"{neighbor['pfx_received']:<9} {neighbor['pfx_accepted']:<9}")
 
     def _format_uptime(self, neighbor):
         """Format uptime for display with safer parsing"""
@@ -396,10 +412,10 @@ class IpBgpReport:
             # Fall back to "never" if there's any parsing error
             return "never"
 
-    def _print_rt_table(self, rt_entries):
+    def _print_rt_table(self, output, rt_entries):
         """Print formatted route type table"""
         for rt_entry in rt_entries:    
-            print(f" {rt_entry['status_info']:<7} {rt_entry['network_info']:<50}\n "
-                  f"                            {rt_entry['nexthop_info']:<16} {rt_entry['metric_info']:<7} "
-                  f"{rt_entry['locpref_info']:<7} {rt_entry['weight_info']:<6} "
-                  f"{rt_entry['path_info']:<20} ")
+            output.print_line(f" {rt_entry['status_info']:<7} {rt_entry['network_info']:<50}\n "
+                              f"                            {rt_entry['nexthop_info']:<16} {rt_entry['metric_info']:<7} "
+                              f"{rt_entry['locpref_info']:<7} {rt_entry['weight_info']:<6} "
+                              f"{rt_entry['path_info']:<20} ")

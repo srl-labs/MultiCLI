@@ -14,6 +14,7 @@ wherever the attributes don't line up some placeholder values may be used."""
 
 import datetime
 import ipaddress
+import re
 
 from srlinux.data import (
     Data,
@@ -22,8 +23,72 @@ from srlinux.data import (
 from srlinux.location import build_path
 from srlinux.mgmt.cli import KeyCompleter, MultipleKeyCompleters, CliPlugin
 from srlinux.schema import FixedSchemaRoot
+from srlinux.schema.data_store import DataStore
 from srlinux.syntax import Syntax
 from srlinux import strings
+
+
+def _junos_to_srl_intf(name):
+    """Translate Juniper JUNOS interface naming to SR Linux naming."""
+    if not name or name == "*":
+        return name
+    raw = str(name).strip()
+    sub = ""
+    if "." in raw:
+        base, sub_part = raw.split(".", 1)
+        sub = f".{sub_part}"
+    else:
+        base = raw
+    low = base.lower()
+    m = re.match(r'^(?:et|xe|ge)-(\d+)/(\d+)/(\d+)(?::(\d+))?$', low)
+    if m:
+        fpc, pic, port, ch = m.group(1), m.group(2), m.group(3), m.group(4)
+        if pic == "0":
+            slot = int(fpc) + 1
+            port_num = int(port) + 1
+            chan_num = int(ch) + 1 if ch is not None else None
+        else:
+            slot = int(fpc)
+            port_num = int(port) if int(port) > 0 else 1
+            chan_num = (int(ch) if int(ch) > 0 else 1) if ch is not None else None
+        if chan_num is not None:
+            return f"ethernet-{slot}/{port_num}/{chan_num}{sub}"
+        return f"ethernet-{slot}/{port_num}{sub}"
+    m = re.match(r'^ae(\d+)$', low)
+    if m:
+        return f"lag{m.group(1)}{sub}"
+    m = re.match(r'^lo(\d+)$', low)
+    if m:
+        return f"system0{sub}" if m.group(1) == "0" else f"lo{m.group(1)}{sub}"
+    m = re.match(r'^(?:fxp|em|me)(\d+)$', low)
+    if m:
+        return f"mgmt0{sub}"
+    if low == "irb":
+        return f"irb0{sub}"
+    return raw
+
+
+def _extract_junos_intf_arg(state, arguments, subcmd_node=None):
+    """Extract interface name argument from arguments or state.line_commands."""
+    argument_name = "*"
+    for src in (arguments, getattr(state, "line_commands", None)):
+        if src is None:
+            continue
+        try:
+            if src.has_node("interfaces"):
+                val = src.get_value_or("interfaces", "name", "*")
+                if val and val != "*":
+                    argument_name = str(val)
+                    break
+            if subcmd_node and src.has_node(subcmd_node):
+                val = src.get_value_or(subcmd_node, "name", "*")
+                if val and val != "*":
+                    argument_name = str(val)
+                    break
+        except Exception:
+            pass
+    return _junos_to_srl_intf(argument_name)
+
 
 class Plugin(CliPlugin):
     """ Base class that loads three classes each representing one of the
@@ -153,14 +218,11 @@ class JperInterfaceBrief():
 
     def _stream_interfaces(self, state, arguments):
         """Function to return state data (specific or all if unspecified) from SR Linux"""
-        if arguments.get("interfaces", "name") == "*":
-            argument_name = arguments.get("brief", "name")
-        else:
-            argument_name = arguments.get("interfaces", "name")
+        argument_name = _extract_junos_intf_arg(state, arguments, subcmd_node="brief")
         intf_name, subintf_index = strings.extract_interface_name_subinterface_index(argument_name)
         self._only_subinterface = subintf_index is not None
         path = build_path(f"/interface[name={intf_name}]")
-        return state.server_data_store.stream_data(path, recursive=True), argument_name
+        return state.server.get_data_store(DataStore.State).stream_data(path, recursive=True), argument_name
 
     def _populate_data(self, data, serve_data, chassis_data, arg_name):
         """Function to iterate over data retrieved from state and populate the datastructure
@@ -184,15 +246,22 @@ class JperInterfaceBrief():
                     _
                 ) = _get_add_info(subinterface)
                 subifchild_flags_info = "Up" if subinterface.oper_state == "up" else "Down"
-                if interface.vlan_tagging:
-                    vlan_id = (
-                        subinterface.vlan.get(0)
-                        .encap.get(0)
-                        .single_tagged.get(0)
-                        .vlan_id
-                    )
-                    subifchild_flags_addition = (f" VLAN-Tag [ {interface.tpid[-6:]}.{vlan_id} ] ")
-                    subifchild_flags_info += subifchild_flags_addition
+                if getattr(interface, 'vlan_tagging', False):
+                    try:
+                        vlan_id = (
+                            subinterface.vlan.get(0)
+                            .encap.get(0)
+                            .single_tagged.get(0)
+                            .vlan_id
+                        )
+                        tpid = getattr(interface, 'tpid', '')
+                        tpid_suffix = tpid[-6:] if tpid else '0x8100'
+                        subifchild_flags_addition = (
+                            f" VLAN-Tag [ {tpid_suffix}.{vlan_id} ] "
+                        )
+                        subifchild_flags_info += subifchild_flags_addition
+                    except Exception:
+                        pass
                 subifchild.flags = subifchild_flags_info
                 subifchild.encap = "ENET2" if interface.ethernet.exists() else ""
             child.synchronizer.flush_fields(child)
@@ -359,14 +428,11 @@ class JperInterfaceTerse():
 
     def _stream_interfaces(self, state, arguments):
         """Function to return state data (specific or all if unspecified) from SR Linux"""
-        if arguments.get("interfaces", "name") == "*":
-            argument_name = arguments.get("terse", "name")
-        else:
-            argument_name = arguments.get("interfaces", "name")
+        argument_name = _extract_junos_intf_arg(state, arguments, subcmd_node="terse")
         intf_name, subintf_index = strings.extract_interface_name_subinterface_index(argument_name)
         self._only_subinterface = subintf_index is not None
         path = build_path(f"/interface[name={intf_name}]")
-        return state.server_data_store.stream_data(path, recursive=True), argument_name
+        return state.server.get_data_store(DataStore.State).stream_data(path, recursive=True), argument_name
 
 
     def _populate_data(self, data, serve_data, arg_name):
@@ -582,11 +648,11 @@ class JperInterfaceSummary():
 
     def _stream_interfaces(self, state, arguments):
         """Function to return state data (specific or all if unspecified) from SR Linux"""
-        argument_name = arguments.get("interfaces", "name")
+        argument_name = _extract_junos_intf_arg(state, arguments)
         intf_name, subintf_index = strings.extract_interface_name_subinterface_index(argument_name)
         self._only_subinterface = subintf_index is not None
         path = build_path(f"/interface[name={intf_name}]")
-        return state.server_data_store.stream_data(path, recursive=True), argument_name
+        return state.server.get_data_store(DataStore.State).stream_data(path, recursive=True), argument_name
 
     def _populate_data(self, data, serve_data, chassis_data, qos_data, arg_name):
         """Function to iterate over data retrieved from state and populate the datastructure
@@ -623,28 +689,55 @@ class JperInterfaceSummary():
                             count_mc_queue += 1
                 # Not counting multicast queues, though we have 8 unique queues there as well
                 child.avail_cos_queues = count_uc_queue
-                val = interface.statistics.get(0).in_fcs_error_packets
+                val = 0
+                if hasattr(interface, 'statistics') and interface.statistics.exists():
+                    try:
+                        val = interface.statistics.get(0).in_fcs_error_packets
+                    except Exception:
+                        val = 0
                 child.bit_errors = val if val else 0
-                child.input_rate = interface.traffic_rate.get(0).in_bps
-                child.output_rate = interface.traffic_rate.get(0).out_bps
-                child.intf_index = interface.ifindex
-                macaddr = interface.ethernet.get(0).hw_mac_address
+
+                child.input_rate = 0
+                child.output_rate = 0
+                if hasattr(interface, 'traffic_rate') and interface.traffic_rate.exists():
+                    try:
+                        child.input_rate = interface.traffic_rate.get(0).in_bps
+                        child.output_rate = interface.traffic_rate.get(0).out_bps
+                    except Exception:
+                        pass
+
+                child.intf_index = getattr(interface, 'ifindex', '--')
+                macaddr = '--'
+                if hasattr(interface, 'ethernet') and interface.ethernet.exists():
+                    try:
+                        macaddr = interface.ethernet.get(0).hw_mac_address
+                    except Exception:
+                        pass
                 child.mac_addr = macaddr
                 child.oper_mac_addr = macaddr
-                time_of_last_flap = datetime.datetime.strptime(
-                    interface.last_change, "%Y-%m-%dT%H:%M:%S.%fZ"
-                )
-                time_since_last_flap = datetime.datetime.now() - time_of_last_flap
-                total_seconds = int(time_since_last_flap.total_seconds())
-                weeks, remainder = divmod(total_seconds, 60 * 60 * 24 * 7)
-                days, remainder = divmod(remainder, 60 * 60 * 24)
-                hours, remainder = divmod(remainder, 60 * 60)
-                minutes, __ = divmod(remainder, 60)
-                time_since_last_flap = datetime.datetime.now() - time_of_last_flap
-                child.time_of_last_flap = time_of_last_flap.strftime(
-                    "%Y-%m-%d %H:%M:%S UTC"
-                )
-                child.time_since_last_flap = f"({weeks}w{days}d {hours:02}:{minutes:02} ago)"
+
+                time_of_last_flap_str = getattr(interface, 'last_change', None)
+                if time_of_last_flap_str:
+                    try:
+                        clean_ts = time_of_last_flap_str.replace('Z', '+00:00')
+                        time_of_last_flap = datetime.datetime.fromisoformat(clean_ts)
+                        if time_of_last_flap.tzinfo is None:
+                            time_of_last_flap = time_of_last_flap.replace(tzinfo=datetime.timezone.utc)
+                        time_since_last_flap = datetime.datetime.now(datetime.timezone.utc) - time_of_last_flap
+                        total_seconds = max(0, int(time_since_last_flap.total_seconds()))
+                        weeks, remainder = divmod(total_seconds, 60 * 60 * 24 * 7)
+                        days, remainder = divmod(remainder, 60 * 60 * 24)
+                        hours, remainder = divmod(remainder, 60 * 60)
+                        minutes, __ = divmod(remainder, 60)
+                        child.time_of_last_flap = time_of_last_flap.strftime("%Y-%m-%d %H:%M:%S UTC")
+                        child.time_since_last_flap = f"({weeks}w{days}d {hours:02}:{minutes:02} ago)"
+                    except Exception:
+                        child.time_of_last_flap = "Never"
+                        child.time_since_last_flap = "Never"
+                else:
+                    child.time_of_last_flap = "Never"
+                    child.time_since_last_flap = "Never"
+
                 # These attributes were given placeholder values due to no direct
                 # mapping being available or a lack of understanding the source
                 # material. These can be extended upon later.
@@ -653,7 +746,7 @@ class JperInterfaceSummary():
                 child.active_defects = "N/A"
                 child.bpdu_errors = "N/A"
                 child.ethernet_switching_errors = "N/A"
-                child.snmp_intf_index = "N/A"
+                child.snmp_intf_index = str(interface.ifindex) if hasattr(interface, 'ifindex') and interface.ifindex is not None else "N/A"
                 child.fec_corr_errors = "N/A"
                 child.fec_corr_error_rate = "N/A"
                 child.fec_uncorr_errors = "N/A"
@@ -669,29 +762,34 @@ class JperInterfaceSummary():
                     continue
                 subifchild = child.subinterface.create(subinterface.name)
                 subifchild_flags_info = "Up" if subinterface.oper_state == "up" else "Down"
-                if interface.vlan_tagging:
-                    vlan_id = (
-                        subinterface.vlan.get(0)
-                        .encap.get(0)
-                        .single_tagged.get(0)
-                        .vlan_id
-                    )
-                    subifchild_flags_addition = (
-                        f" VLAN-Tag [ {interface.tpid[-6:]}.{vlan_id} ] "
-                    )
-                    subifchild_flags_info += subifchild_flags_addition
+                if getattr(interface, 'vlan_tagging', False):
+                    try:
+                        vlan_id = (
+                            subinterface.vlan.get(0)
+                            .encap.get(0)
+                            .single_tagged.get(0)
+                            .vlan_id
+                        )
+                        tpid = getattr(interface, 'tpid', '')
+                        tpid_suffix = tpid[-6:] if tpid else '0x8100'
+                        subifchild_flags_addition = (
+                            f" VLAN-Tag [ {tpid_suffix}.{vlan_id} ] "
+                        )
+                        subifchild_flags_info += subifchild_flags_addition
+                    except Exception:
+                        pass
                 subifchild.flags_first = subifchild_flags_info
                 subifchild.encap = "ENET2" if interface.ethernet.exists() else ""
                 subifchild.intf_index = subinterface.ifindex
                 subifchild.snmp_intf_index = "N/A"
-                if not _is_virtual_interface(interface.name):
-                    # Subinterface 0 might not have statistics and original version
-                    # does not show statistics for lo0 which would be the
-                    # corresponding interface
-                    subifchild.input_pkts = subinterface.statistics.get(0).in_packets
-                    subifchild.output_pkts = subinterface.statistics.get(0).out_packets
+                if not _is_virtual_interface(interface.name) and hasattr(subinterface, 'statistics') and subinterface.statistics.exists():
+                    try:
+                        subifchild.input_pkts = subinterface.statistics.get(0).in_packets
+                        subifchild.output_pkts = subinterface.statistics.get(0).out_packets
+                    except Exception:
+                        subifchild.input_pkts = 0
+                        subifchild.output_pkts = 0
                 else:
-                    # thus in those cases we set the value to 0
                     subifchild.input_pkts = 0
                     subifchild.output_pkts = 0
                 subifchild.mtu = subinterface.ip_mtu if subinterface.ip_mtu else "Unlimited"
@@ -913,9 +1011,16 @@ def _util_populate_intf_brief(child, interface, platform):
     # (or enabled) in all circumstances
     # Any case where autonegotiation on a D1 is controlled via configuration is not handled
     child.auto_negotiation = "Enabled"
-    chassis_type = platform.get(0).chassis.get(0).type
-    if "d1" in chassis_type.lower():
-        child.auto_negotiation = "Disabled"
+    if interface.ethernet.exists():
+        try:
+            state_eth = interface.ethernet.get(0)
+            pspeed = getattr(state_eth, 'port_speed', '')
+            if pspeed and any(s in str(pspeed) for s in ['10G', '25G', '40G', '100G', '400G']):
+                child.auto_negotiation = "Disabled"
+            else:
+                child.auto_negotiation = "Enabled"
+        except Exception:
+            pass
 
     # These attributes were given placeholder values due to no direct
     # mapping being available or a lack of understanding the source
@@ -962,17 +1067,19 @@ def _get_add_info(subinterface):
                                 flags,
                             )
                         )
-                    for neigh in getattr(ip_context, info[1]).get(0).neighbor.items():
-                        neighbors[family].add(getattr(neigh, info[2]))
+                    nd_container = getattr(ip_context, info[1], None)
+                    if nd_container is not None and nd_container.exists():
+                        for neigh in nd_container.get(0).neighbor.items():
+                            neighbors[family].add(getattr(neigh, info[2]))
 
     return "N/A", "N/A", neighbors, "N/A", "N/A", proto, local, remote
 
 def _chassis_type(state):
     """Function to retrieve chassis type data needed to output the autonegotiation status."""
     path = build_path("/platform/chassis/type")
-    return state.server_data_store.stream_data(path, recursive=False)
+    return state.server.get_data_store(DataStore.State).stream_data(path, recursive=False)
 
 def _get_qos(state):
     """Function to retrieve QoS data needed to speak on the amount of queues per interface."""
     path_qos = build_path("/qos/interfaces/interface")
-    return state.server_data_store.stream_data(path_qos, recursive=True)
+    return state.server.get_data_store(DataStore.State).stream_data(path_qos, recursive=True)
