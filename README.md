@@ -112,6 +112,75 @@ sudo clab dep -t srl-evpn-mh.clab.yml
 
 All non-MPLS commands are tested on Nokia 7220 IXR-D2L on SR Linux release 25.3.1.
 
+## Usage Modes: Top-Level `show`, Vendor Subtrees, and `srl` Escape Hatch
+
+MultiCLI supports seamless coexistence between vendor CLI syntax and native SR Linux commands:
+
+1. **Top-Level `show` Mode (Single Persona / User Persona)**:
+   - When a node (or user login such as `auser`, `cnxuser`, `juser`, `nokuser`) has an active single default persona, vendor commands are registered directly under the top-level `show` tree (e.g., `show version`, `show interfaces status`, `show ip bgp summary`).
+   - When multiple personas are installed without a single default (`--default none` or NDK `enabled-nos all`), top-level `show` remains 100% native SR Linux.
+2. **Vendor Subtrees (`eos`, `nxos`, `junos`, `sros`)**:
+   - Every installed plugin registers a dedicated top-level vendor node (`eos`, `nxos`, `junos`, `sros`) supporting both **one-liner execution** and **interactive submode**:
+     ```
+     # One-liner execution from root CLI:
+     A:admin@spine# eos show interfaces Ethernet1/1 status
+     A:admin@spine# nxos show interface Ethernet1/2
+     A:admin@spine# junos show interfaces et-0/0/2
+     A:admin@spine# sros show router bgp summary
+
+     # Interactive vendor submode:
+     A:admin@spine# eos
+     --{ running }--[ eos ]--
+     A:admin@spine# show version
+     ```
+3. **Native SR Linux Escape Hatch (`srl show ...`)**:
+   - Whenever a single active persona overrides an overlapping root `show` command (`show version`, Cisco `show interface [brief]`, or Nokia `show lag` / `show system lldp neighbor`), the native SR Linux report remains accessible via `srl show ...` (and all `Try SR Linux command:` hints point to `srl show ...`):
+     ```
+     A:admin@leaf1-2# srl show version
+     A:admin@leaf1-2# srl show interface ethernet-1/1 brief
+     ```
+
+## Switching Personas Dynamically
+
+MultiCLI includes [`tools/switch-multicli.sh`](tools/switch-multicli.sh) to hot-swap NOS personas on any running Containerlab node (`leaf1-1`, `leaf1-2`, `leaf2-1`, `leaf2-2`, `spine`):
+
+```bash
+# Switch leaf1-1 to Arista EOS
+./tools/switch-multicli.sh arista leaf1-1
+
+# Switch leaf1-2 to Cisco NX-OS
+./tools/switch-multicli.sh cisco leaf1-2
+
+# Switch leaf2-1 to Juniper JUNOS
+./tools/switch-multicli.sh juniper leaf2-1
+
+# Switch leaf2-2 to Nokia SR OS
+./tools/switch-multicli.sh nokia leaf2-2
+
+# Install all personas simultaneously on spine (keep root show native, or pick a default)
+./tools/switch-multicli.sh all spine --default none
+./tools/switch-multicli.sh all leaf1-1 --default arista
+```
+
+## Declarative Management via NDK Agent
+
+For declarative configuration via YANG/gNMI/CLI (`/multicli enabled-nos <arista|cisco|juniper|nokia-sros|all>`), install the `srl-multicli` Debian package (`srl-multicli_0.2.0_amd64.deb` or `srl-multicli_0.2.0_arm64.deb`). See [`ndk-agent/README.md`](ndk-agent/README.md) for installation, online/offline repository URLs, and build instructions.
+
+## Automated Validation Suite
+
+An automated test harness ([`tests/validate_multicli.py`](tests/validate_multicli.py)) runs the entire command suite over real SSH/CLI sessions against running switches and verifies that command execution is error-free, non-empty, pipe-compatible, and free of hardcoded mock data:
+
+```bash
+# Run all tests against default lab nodes (leaf1-1=Arista, leaf1-2=Cisco, leaf2-1=Juniper, leaf2-2=Nokia, spine=Multi-NOS)
+python3 tests/validate_multicli.py --install
+
+# Include temporary live OSPF, IS-IS, and BFD protocol fixtures (automatically rolled back on exit)
+python3 tests/validate_multicli.py --install --with-igp-fixtures
+
+# Or specify custom nodes:
+python3 tests/validate_multicli.py --arista-node leaf1-1 --cisco-node leaf1-2 --juniper-node leaf2-1 --nokia-node leaf2-2 --spine-node spine
+```
+
 ## This is great, but i want more commands supported for my network
 
 We are inviting contributions from the open source community towards this project.

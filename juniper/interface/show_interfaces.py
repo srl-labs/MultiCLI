@@ -21,7 +21,7 @@ from srlinux.data import (
     Formatter,
 )
 from srlinux.location import build_path
-from srlinux.mgmt.cli import KeyCompleter, MultipleKeyCompleters, CliPlugin
+from srlinux.mgmt.cli import KeyCompleter, MultipleKeyCompleters
 from srlinux.schema import FixedSchemaRoot
 from srlinux.schema.data_store import DataStore
 from srlinux.syntax import Syntax
@@ -88,49 +88,6 @@ def _extract_junos_intf_arg(state, arguments, subcmd_node=None):
         except Exception:
             pass
     return _junos_to_srl_intf(argument_name)
-
-
-class Plugin(CliPlugin):
-    """ Base class that loads three classes each representing one of the
-    versions of the command being translated. """
-    def load(self, cli, **_kwargs):
-        """ Load the commands into the CLI show mode. """
-        interface = cli.show_mode.add_command(
-            JperInterfaceSummary.get_syntax(),
-            update_location=True,
-            callback=self._interface_summary,
-            schema=JperInterfaceSummary.get_data_schema(),
-        )
-        interface.add_command(
-            JperInterfaceBrief.get_syntax(),
-            update_location=True,
-            callback=self._interface_brief,
-            schema=JperInterfaceBrief.get_data_schema(),
-        )
-        interface.add_command(
-            JperInterfaceTerse.get_syntax(),
-            update_location=True,
-            callback=self._interface_terse,
-            schema=JperInterfaceTerse.get_data_schema(),
-        )
-
-    @staticmethod
-    def _interface_summary(state, arguments, output, **_kwargs):
-        if state.is_intermediate_command:
-            return
-        JperInterfaceSummary().print(state, arguments, output, **_kwargs)
-
-    @staticmethod
-    def _interface_brief(state, arguments, output, **_kwargs):
-        if state.is_intermediate_command:
-            return
-        JperInterfaceBrief().print(state, arguments, output, **_kwargs)
-
-    @staticmethod
-    def _interface_terse(state, arguments, output, **_kwargs):
-        if state.is_intermediate_command:
-            return
-        JperInterfaceTerse().print(state, arguments, output, **_kwargs)
 
 
 class JperInterfaceBrief():
