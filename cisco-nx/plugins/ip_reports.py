@@ -94,13 +94,13 @@ class Plugin(CliPlugin):
         if state.is_intermediate_command:
             return
         IpRouteReport()._show_routes(state, output, network_instance='default')
-        output.print_line(f'\nTry SR Linux command: show network-instance default route-table')
+        output.print_line('\nTry SR Linux command: show network-instance default route-table ipv4-unicast summary')
     def _show_vrf_route(self, state, arguments, output, **_kwargs):
         if state.is_intermediate_command:
             return
         network_instance = arguments.get('vrf_name')
         IpRouteReport()._show_routes(state, output, network_instance=network_instance)
-        output.print_line(f'\nTry SR Linux command: show network-instance {network_instance} route-table')
+        output.print_line(f'\nTry SR Linux command: show network-instance {network_instance} route-table ipv4-unicast summary')
 
     def _show_ip_interface_brief(self, state, arguments, output, **_kwargs):
         if state.is_intermediate_command:

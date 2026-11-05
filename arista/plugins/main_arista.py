@@ -160,20 +160,24 @@ class Plugin(CliPlugin):
 ############# Base BGP IP : saju ###########
 
     def _print_summary(self, state, arguments, output, **_kwargs):
+        if state.is_intermediate_command:
+            return
         self._arguments = arguments
         netinst = self._arguments.get('summary', 'vrf')
         BaseBgpReport().show_bgp_summary(state, output, network_instance=netinst)
-        print("-" * 100)
-        print(f'Try SR Linux command: show network-instance {netinst} protocols bgp neighbor')
+        output.print_line("-" * 100)
+        output.print_line(f'Try SR Linux command: show network-instance {netinst} protocols bgp neighbor')
 
 ############### EVPN BGP : saju ############
 
     def _print_evpn_summary(self, state, arguments, output, **_kwargs):
+        if state.is_intermediate_command:
+            return
         self._arguments = arguments
         netinst = self._arguments.get('summary', 'vrf')
         EvpnBgpReport().show_bgp_summary(state, output, network_instance=netinst)
-        print("-" * 100)
-        print(f'Try SR Linux command: show network-instance {netinst} protocols bgp neighbor')
+        output.print_line("-" * 100)
+        output.print_line(f'Try SR Linux command: show network-instance {netinst} protocols bgp neighbor')
 
 
     def __init__(self):
@@ -196,49 +200,59 @@ class Plugin(CliPlugin):
         self._received_count = 0
 
     def _print_1(self, state, arguments, output, **_kwargs):
+        if state.is_intermediate_command:
+            return
         self._route_type = '1'
         self._arguments = arguments
         netinst = self._arguments.get('auto-discovery', 'vrf')
         esi_input = self._arguments.get('auto-discovery', 'esi')
         EvpnBgpReport().show_evpn_rt1(state, output, network_instance=netinst, esi_value=esi_input)
-        print("-" * 100)
-        print('Try SR Linux command: show network-instance default protocols bgp routes evpn route-type 1 summary')
+        output.print_line("-" * 100)
+        output.print_line(f'Try SR Linux command: show network-instance {netinst} protocols bgp routes evpn route-type 1 summary')
 
     def _print_2(self, state, arguments, output, **_kwargs):
+        if state.is_intermediate_command:
+            return
         self._route_type = '2'
         self._arguments = arguments
         netinst = self._arguments.get('mac-ip', 'vrf')
         mac_input = self._arguments.get('mac-ip', 'mac-address')
         EvpnBgpReport().show_evpn_rt2(state, output, network_instance=netinst, mac_value=mac_input)
-        print("-" * 100)
-        print('Try SR Linux command: show network-instance default protocols bgp routes evpn route-type 2 summary')
+        output.print_line("-" * 100)
+        output.print_line(f'Try SR Linux command: show network-instance {netinst} protocols bgp routes evpn route-type 2 summary')
 
     def _print_3(self, state, arguments, output, **_kwargs):
+        if state.is_intermediate_command:
+            return
         self._route_type = '3'
         self._arguments = arguments
         netinst = self._arguments.get('imet', 'vrf')
         originr_input = self._arguments.get('imet', 'origin-router')
         EvpnBgpReport().show_evpn_rt3(state, output, network_instance=netinst, originr_value=originr_input)
-        print("-" * 100)
-        print('Try SR Linux command: show network-instance default protocols bgp routes evpn route-type 3 summary')
+        output.print_line("-" * 100)
+        output.print_line(f'Try SR Linux command: show network-instance {netinst} protocols bgp routes evpn route-type 3 summary')
 
     def _print_4(self, state, arguments, output, **_kwargs):
+        if state.is_intermediate_command:
+            return
         self._route_type = '4'
         self._arguments = arguments
         netinst = self._arguments.get('ethernet-segment', 'vrf')
         esi4_input = self._arguments.get('ethernet-segment', 'esi')
         EvpnBgpReport().show_evpn_rt4(state, output, network_instance=netinst, esi4_value=esi4_input)
-        print("-" * 100)
-        print('Try SR Linux command: show network-instance default protocols bgp routes evpn route-type 4 summary')
+        output.print_line("-" * 100)
+        output.print_line(f'Try SR Linux command: show network-instance {netinst} protocols bgp routes evpn route-type 4 summary')
 
     def _print_5(self, state, arguments, output, **_kwargs):
+        if state.is_intermediate_command:
+            return
         self._route_type = '5'
         self._arguments = arguments
         netinst = self._arguments.get('ip-prefix', 'vrf')
         ip_input = self._arguments.get('ip-prefix', 'ip-address')
         EvpnBgpReport().show_evpn_rt5(state, output, network_instance=netinst, ip_value=ip_input)
-        print("-" * 100)
-        print('Try SR Linux command: show network-instance default protocols bgp routes evpn route-type 5 summary')
+        output.print_line("-" * 100)
+        output.print_line(f'Try SR Linux command: show network-instance {netinst} protocols bgp routes evpn route-type 5 summary')
 
 ########## Interface and ARP: mozaman ###########
 
